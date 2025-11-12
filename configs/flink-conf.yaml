@@ -1,0 +1,143 @@
+# Flink Configuration for Real-Time Cryptocurrency Market Analyzer
+# Phase 2, Week 3, Day 5-7
+
+# ==============================================================================
+# JobManager Configuration
+# ==============================================================================
+
+jobmanager.rpc.address: jobmanager
+jobmanager.rpc.port: 6123
+jobmanager.bind-host: 0.0.0.0
+jobmanager.memory.process.size: 2048m
+jobmanager.memory.flink.size: 1280m
+
+# ==============================================================================
+# TaskManager Configuration
+# ==============================================================================
+
+taskmanager.bind-host: 0.0.0.0
+taskmanager.host: taskmanager
+taskmanager.memory.process.size: 1728m
+taskmanager.memory.flink.size: 1280m
+taskmanager.numberOfTaskSlots: 2
+
+# ==============================================================================
+# Parallelism Configuration
+# ==============================================================================
+
+parallelism.default: 2
+
+# ==============================================================================
+# High Availability Configuration (Disabled for Development)
+# ==============================================================================
+
+# high-availability.type: zookeeper
+# high-availability.storageDir: hdfs:///flink/ha/
+# high-availability.zookeeper.quorum: zookeeper:2181
+
+# ==============================================================================
+# State Backend Configuration
+# ==============================================================================
+
+# Use RocksDB for stateful processing (better for large state)
+state.backend: rocksdb
+state.backend.incremental: true
+state.checkpoints.dir: file:///opt/flink/data/checkpoints
+state.savepoints.dir: file:///opt/flink/data/savepoints
+
+# ==============================================================================
+# Checkpointing Configuration
+# ==============================================================================
+
+# Enable checkpointing for fault tolerance
+execution.checkpointing.interval: 60000  # 60 seconds
+execution.checkpointing.mode: EXACTLY_ONCE
+execution.checkpointing.timeout: 600000  # 10 minutes
+execution.checkpointing.max-concurrent-checkpoints: 1
+execution.checkpointing.min-pause: 5000  # 5 seconds between checkpoints
+
+# ==============================================================================
+# Restart Strategy Configuration
+# ==============================================================================
+
+# Restart on failure with exponential backoff
+restart-strategy: exponential-delay
+restart-strategy.exponential-delay.initial-backoff: 10s
+restart-strategy.exponential-delay.max-backoff: 2min
+restart-strategy.exponential-delay.backoff-multiplier: 2.0
+restart-strategy.exponential-delay.jitter-factor: 0.1
+restart-strategy.exponential-delay.attempts-before-reset-backoff: 10
+
+# ==============================================================================
+# Web UI Configuration
+# ==============================================================================
+
+web.submit.enable: true
+web.upload.dir: /opt/flink/uploads
+
+# ==============================================================================
+# Metrics Configuration
+# ==============================================================================
+
+metrics.reporter.promgateway.class: org.apache.flink.metrics.prometheus.PrometheusPushGatewayReporter
+metrics.reporter.promgateway.interval: 60 SECONDS
+
+# ==============================================================================
+# Network Configuration
+# ==============================================================================
+
+taskmanager.network.memory.fraction: 0.1
+taskmanager.network.memory.min: 64mb
+taskmanager.network.memory.max: 1gb
+
+# ==============================================================================
+# Advanced Configuration for Production
+# ==============================================================================
+
+# Latency tracking (useful for debugging)
+metrics.latency.interval: 5000
+
+# Time configuration
+execution.checkpointing.externalized-checkpoint-retention: RETAIN_ON_CANCELLATION
+
+# RocksDB tuning for cryptocurrency time-series data
+state.backend.rocksdb.predefined-options: SPINNING_DISK_OPTIMIZED
+state.backend.rocksdb.thread.num: 4
+state.backend.rocksdb.block.cache-size: 256m
+
+# ==============================================================================
+# Logging Configuration
+# ==============================================================================
+
+# Available log levels: TRACE, DEBUG, INFO, WARN, ERROR, FATAL, OFF
+# Set to INFO for production, DEBUG for development
+# rootLogger.level = INFO
+
+# ==============================================================================
+# Kafka Connector Configuration (for reference)
+# ==============================================================================
+
+# These are typically set in the job code, not here
+# Kafka bootstrap servers: kafka:29092
+# Kafka group id: crypto-analyzer-consumer-group
+# Auto offset reset: earliest/latest
+
+# ==============================================================================
+# Notes for Phase 3 (Week 5-7)
+# ==============================================================================
+
+# When you start building Flink jobs in Phase 3, you'll:
+# 1. Use this config for exactly-once semantics
+# 2. Process Kafka streams with event time semantics
+# 3. Create windowed aggregations (tumbling, sliding, session windows)
+# 4. Maintain state across windows (e.g., moving averages)
+# 5. Checkpoint state to survive failures
+# 6. Use watermarks for handling late data
+
+# For cryptocurrency price data specifically:
+# - Use event time (price timestamp) not processing time
+# - Set watermarks to handle network delays (e.g., 10 seconds)
+# - Create 1-minute tumbling windows for aggregations
+# - Use keyed state for per-cryptocurrency metrics
+blob.server.port: 6124
+query.server.port: 6125

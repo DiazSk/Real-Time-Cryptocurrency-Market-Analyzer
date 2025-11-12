@@ -115,12 +115,42 @@ docker-compose ps
 
 ---
 
-#### **Day 5-7: Flink Integration** (Coming Next)
+#### **Day 5-7: Flink Integration** ✅ **COMPLETED**
 
-- Apache Flink JobManager and TaskManager
-- Flink Web UI configuration
-- Test Flink job submission
-- Integration with Kafka
+**What was built:**
+- ✅ Apache Flink JobManager (orchestrator)
+- ✅ Apache Flink TaskManager with 2 task slots
+- ✅ Flink Web UI for job monitoring
+- ✅ RocksDB state backend for stateful processing
+- ✅ Checkpointing every 60 seconds (exactly-once semantics)
+- ✅ Exponential backoff restart strategy
+- ✅ Integration with Kafka and PostgreSQL
+
+**Key capabilities:**
+- Stream processing with low latency
+- Event-time processing with watermarks
+- Windowed aggregations (tumbling, sliding, session)
+- Stateful computations per cryptocurrency
+- Fault tolerance with checkpoints
+
+**Access:**
+- Flink Web UI: http://localhost:8082
+- Task Slots: 2 (scalable)
+
+**See:** `PHASE2_DAY5-7.md` for detailed setup instructions
+
+---
+
+### ✅ Week 3: COMPLETE! Infrastructure Ready!
+
+**Full Stack Operational:**
+- ✅ Message Broker: Apache Kafka
+- ✅ Database: PostgreSQL with TimescaleDB
+- ✅ Cache: Redis
+- ✅ Stream Processing: Apache Flink
+- ✅ Management UIs: Kafka UI, pgAdmin, Flink Web UI
+
+**Total Services: 8 containers running**
 
 ---
 
@@ -150,8 +180,12 @@ docker-compose ps
 - [Git Workflow](GIT_WORKFLOW.md) - Branching strategy
 - [Database Connections](DATABASE_CONNECTIONS.md) - Connection guide
 - [Docker Commands](DOCKER_COMMANDS.md) - Quick reference
+- [Flink Commands](FLINK_COMMANDS.md) - Flink operations
+- [Troubleshooting](TROUBLESHOOTING.md) - Common issues & fixes
 - [Phase 2 Day 1-2](PHASE2_DAY1-2.md) - Kafka setup
 - [Phase 2 Day 3-4](PHASE2_DAY3-4.md) - Database setup
+- [Phase 2 Day 5-7](PHASE2_DAY5-7.md) - Flink setup
+- [Phase 2 Complete](PHASE2_COMPLETE.md) - Infrastructure summary
 
 ---
 
@@ -177,11 +211,11 @@ docker-compose ps
 
 - [x] **Phase 1:** Streaming Fundamentals (Weeks 1-2)
 - [ ] **Phase 2:** Infrastructure Setup (Weeks 3-4) **← IN PROGRESS**
-  - [x] Week 3: Docker Environment
+  - [x] Week 3: Docker Environment ✅
     - [x] Day 1-2: Kafka + Zookeeper + UI
-    - [x] Day 3-4: PostgreSQL + Redis *(in progress)*
-    - [ ] Day 5-7: Add Flink
-  - [ ] Week 4: Basic Data Pipeline
+    - [x] Day 3-4: PostgreSQL + TimescaleDB + Redis
+    - [x] Day 5-7: Apache Flink (JobManager + TaskManager)
+  - [ ] Week 4: Basic Data Pipeline ← NEXT
 - [ ] **Phase 3:** Stream Processing Core (Weeks 5-7)
 - [ ] **Phase 4:** API & Visualization (Weeks 8-9)
 - [ ] **Phase 5:** Final Polish (Week 10)
@@ -194,7 +228,7 @@ docker-compose ps
 |-----------|-----------|---------|---------|
 | Message Broker | Apache Kafka | 7.5.0 | Event streaming platform |
 | Coordination | Apache Zookeeper | 7.5.0 | Kafka cluster management |
-| Stream Processing | Apache Flink | TBD | Real-time data processing |
+| Stream Processing | Apache Flink | 1.18 | Real-time data processing |
 | Database | PostgreSQL + TimescaleDB | latest-pg15 | Time-series data storage |
 | Cache | Redis | 7-alpine | In-memory fast access |
 | DB Management | pgAdmin | latest | Database GUI |
@@ -215,7 +249,7 @@ docker-compose ps
 | PostgreSQL | 5433 | localhost:5433 |
 | pgAdmin | 5050 | http://localhost:5050 |
 | Redis | 6379 | localhost:6379 |
-| Flink Web UI | TBD | http://localhost:8082 |
+| Flink Web UI | 8082 | http://localhost:8082 |
 
 ---
 

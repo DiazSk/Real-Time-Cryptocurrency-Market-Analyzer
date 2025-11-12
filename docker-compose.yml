@@ -44,7 +44,7 @@ services:
     networks:
       - crypto-network
 
-  # PostgreSQL with TimescaleDB - Historical data storage
+  # PostgreSQL with TimescaleDB - Time-series database
   postgres:
     image: timescale/timescaledb:latest-pg15
     container_name: postgres
@@ -82,7 +82,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # pgAdmin - PostgreSQL GUI (optional, for development)
+  # pgAdmin - PostgreSQL GUI
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: pgadmin
@@ -99,6 +99,56 @@ services:
     depends_on:
       - postgres
 
+  # Apache Flink JobManager - Orchestrates stream processing jobs
+  jobmanager:
+    image: flink:1.18-scala_2.12-java11
+    container_name: flink-jobmanager
+    ports:
+      - "8082:8081"  # Flink Web UI
+    command: >
+      bash -c "mkdir -p /opt/flink/data/checkpoints /opt/flink/data/savepoints /opt/flink/uploads &&
+               chown -R flink:flink /opt/flink/data &&
+               /docker-entrypoint.sh jobmanager"
+    user: root
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        jobmanager.memory.process.size: 2048m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+    volumes:
+      - flink_data:/opt/flink/data
+      - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
+    networks:
+      - crypto-network
+    depends_on:
+      - kafka
+      - postgres
+
+  # Apache Flink TaskManager - Executes stream processing tasks
+  taskmanager:
+    image: flink:1.18-scala_2.12-java11
+    container_name: flink-taskmanager
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        jobmanager.memory.process.size: 2048m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+    volumes:
+      - flink_data:/opt/flink/data
+      - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
+    networks:
+      - crypto-network
+    scale: 1  # Can scale to multiple TaskManagers later
+
 networks:
   crypto-network:
     driver: bridge
@@ -109,4 +159,6 @@ volumes:
   redis_data:
     driver: local
   pgadmin_data:
+    driver: local
+  flink_data:
     driver: local
