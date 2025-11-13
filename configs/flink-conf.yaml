@@ -141,3 +141,24 @@ state.backend.rocksdb.block.cache-size: 256m
 # - Use keyed state for per-cryptocurrency metrics
 blob.server.port: 6124
 query.server.port: 6125
+
+jobmanager.rpc.address: jobmanager
+jobmanager.memory.process.size: 2048m
+taskmanager.memory.process.size: 1728m
+taskmanager.numberOfTaskSlots: 2
+parallelism.default: 2
+
+
+jobmanager.rpc.address: jobmanager
+jobmanager.memory.process.size: 2048m
+taskmanager.memory.process.size: 1728m
+taskmanager.numberOfTaskSlots: 2
+parallelism.default: 2
+
+
+jobmanager.rpc.address: jobmanager
+jobmanager.memory.process.size: 2048m
+taskmanager.memory.process.size: 1728m
+taskmanager.numberOfTaskSlots: 2
+parallelism.default: 2
+

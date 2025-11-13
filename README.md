@@ -210,13 +210,15 @@ docker-compose ps
 ## 📝 Progress Tracker
 
 - [x] **Phase 1:** Streaming Fundamentals (Weeks 1-2)
-- [ ] **Phase 2:** Infrastructure Setup (Weeks 3-4) **← IN PROGRESS**
+- [ ] **Phase 2:** Infrastructure Setup (Weeks 3-4) **✅ COMPLETE!**
   - [x] Week 3: Docker Environment ✅
     - [x] Day 1-2: Kafka + Zookeeper + UI
     - [x] Day 3-4: PostgreSQL + TimescaleDB + Redis
     - [x] Day 5-7: Apache Flink (JobManager + TaskManager)
-  - [ ] Week 4: Basic Data Pipeline ← NEXT
-- [ ] **Phase 3:** Stream Processing Core (Weeks 5-7)
+  - [x] Week 4: Basic Data Pipeline ✅
+    - [x] Day 1-3: Python producer (CoinGecko API → Kafka)
+    - [x] Day 4-7: Simple consumer (Kafka → Console)
+- [ ] **Phase 3:** Stream Processing Core (Weeks 5-7) ← NEXT
 - [ ] **Phase 4:** API & Visualization (Weeks 8-9)
 - [ ] **Phase 5:** Final Polish (Week 10)
 
