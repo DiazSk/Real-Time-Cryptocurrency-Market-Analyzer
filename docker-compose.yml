@@ -1,0 +1,164 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - crypto-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - crypto-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    networks:
+      - crypto-network
+
+  # PostgreSQL with TimescaleDB - Time-series database
+  postgres:
+    image: timescale/timescaledb:latest-pg15
+    container_name: postgres
+    environment:
+      POSTGRES_DB: crypto_db
+      POSTGRES_USER: crypto_user
+      POSTGRES_PASSWORD: crypto_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./configs/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crypto_user -d crypto_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Caching layer
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - crypto-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin - PostgreSQL GUI
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@crypto.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - crypto-network
+    depends_on:
+      - postgres
+
+  # Apache Flink JobManager - Orchestrates stream processing jobs
+  jobmanager:
+    image: flink:1.18-scala_2.12-java11
+    container_name: flink-jobmanager
+    ports:
+      - "8082:8081"  # Flink Web UI
+    command: >
+      bash -c "mkdir -p /opt/flink/data/checkpoints /opt/flink/data/savepoints /opt/flink/uploads &&
+               chown -R flink:flink /opt/flink/data &&
+               /docker-entrypoint.sh jobmanager"
+    user: root
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        jobmanager.memory.process.size: 2048m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+    volumes:
+      - flink_data:/opt/flink/data
+      - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
+    networks:
+      - crypto-network
+    depends_on:
+      - kafka
+      - postgres
+
+  # Apache Flink TaskManager - Executes stream processing tasks
+  taskmanager:
+    image: flink:1.18-scala_2.12-java11
+    container_name: flink-taskmanager
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        jobmanager.memory.process.size: 2048m
+        taskmanager.memory.process.size: 1728m
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 2
+    volumes:
+      - flink_data:/opt/flink/data
+      - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
+    networks:
+      - crypto-network
+    scale: 1  # Can scale to multiple TaskManagers later
+
+networks:
+  crypto-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+  flink_data:
+    driver: local
