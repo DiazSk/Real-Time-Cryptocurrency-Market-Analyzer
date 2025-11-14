@@ -22,16 +22,17 @@ This project demonstrates:
 Real-Time-Cryptocurrency-Market-Analyzer/
 ├── docker-compose.yml          # Infrastructure setup
 ├── configs/                    # Service configurations
-│   └── init-db.sql            # PostgreSQL schema
-├── src/                        # Source code (upcoming)
-│   ├── producers/             # Kafka producers
-│   ├── consumers/             # Kafka consumers
-│   └── flink_jobs/            # Flink streaming jobs
+│   ├── init-db.sql            # PostgreSQL schema
+│   └── flink-conf.yaml        # Flink configuration
+├── src/                        # Source code
+│   ├── producers/             # Python Kafka producers ✅
+│   ├── consumers/             # Python Kafka consumers ✅
+│   └── flink_jobs/            # Java Flink streaming jobs 🔄
+│       ├── pom.xml            # Maven project config
+│       ├── src/main/java/     # Java source code
+│       └── BUILD_AND_RUN.md   # Build & deployment guide
+├── docs/                       # Documentation
 ├── .github/                    # GitHub templates
-├── GIT_WORKFLOW.md            # Branching strategy
-├── DATABASE_CONNECTIONS.md    # DB connection guide
-├── PHASE2_DAY1-2.md          # Day 1-2 instructions
-├── PHASE2_DAY3-4.md          # Day 3-4 instructions
 └── README.md                   # This file
 ```
 
@@ -209,8 +210,8 @@ docker-compose ps
 
 ## 📝 Progress Tracker
 
-- [x] **Phase 1:** Streaming Fundamentals (Weeks 1-2)
-- [ ] **Phase 2:** Infrastructure Setup (Weeks 3-4) **✅ COMPLETE!**
+- [x] **Phase 1:** Streaming Fundamentals (Weeks 1-2) ✅
+- [x] **Phase 2:** Infrastructure Setup (Weeks 3-4) ✅
   - [x] Week 3: Docker Environment ✅
     - [x] Day 1-2: Kafka + Zookeeper + UI
     - [x] Day 3-4: PostgreSQL + TimescaleDB + Redis
@@ -218,7 +219,13 @@ docker-compose ps
   - [x] Week 4: Basic Data Pipeline ✅
     - [x] Day 1-3: Python producer (CoinGecko API → Kafka)
     - [x] Day 4-7: Simple consumer (Kafka → Console)
-- [ ] **Phase 3:** Stream Processing Core (Weeks 5-7) ← NEXT
+- [ ] **Phase 3:** Stream Processing Core (Weeks 5-7) **← CURRENT**
+  - [ ] Week 5: Flink Setup & Basic Integration 🔄 **IN PROGRESS**
+    - [x] Day 1-2: Java/Maven project setup ✅
+    - [ ] Day 2-3: Kafka source integration
+    - [ ] Day 4-7: Event-time watermarks & 1-min windows
+  - [ ] Week 6: Multi-Window Processing
+  - [ ] Week 7: Database Sinks
 - [ ] **Phase 4:** API & Visualization (Weeks 8-9)
 - [ ] **Phase 5:** Final Polish (Week 10)
 
@@ -338,4 +345,4 @@ This project is open source and available under the [MIT License](LICENSE).
 
 **Built with 💪 as part of streaming data mastery journey**
 
-*Last Updated: Phase 2, Week 3, Day 3-4*
+*Last Updated: Phase 3, Week 5, Day 1-2*
