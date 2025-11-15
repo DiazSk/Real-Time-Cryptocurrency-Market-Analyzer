@@ -46,3 +46,19 @@ data/
 # Flink
 flink-savepoints/
 flink-checkpoints/
+
+# Maven (Java build artifacts)
+target/
+dependency-reduced-pom.xml
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# Test files
+*_test.py
+*test*.py
+continuous_*.py
+quick_*.py
+produce_test_*.py

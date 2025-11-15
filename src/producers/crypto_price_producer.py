@@ -152,7 +152,7 @@ class CryptoPriceProducer:
             'market_cap': coin_data.get('usd_market_cap'),
             'price_change_24h': coin_data.get('usd_24h_change'),
             'last_updated': coin_data.get('last_updated_at'),
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.utcnow().isoformat() + 'Z',  # Add Z for UTC timezone
             'producer_id': 'python-producer-v1',
             'message_id': f"{symbol}-{int(time.time() * 1000)}"
         }

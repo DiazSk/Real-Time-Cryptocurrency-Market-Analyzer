@@ -111,9 +111,27 @@ public class PriceUpdate implements Serializable {
     /**
      * Get timestamp as Instant for event-time processing
      * Parses ISO 8601 timestamp string from Python producer
+     * 
+     * CRITICAL: Error handling prevents job crashes from malformed timestamps
      */
     public Instant getInstant() {
-        return Instant.parse(timestamp);
+        try {
+            if (timestamp == null || timestamp.isEmpty()) {
+                return Instant.now();  // Fallback to current time
+            }
+            return Instant.parse(timestamp);
+        } catch (Exception e) {
+            // Log error but don't crash the job
+            System.err.println("Failed to parse timestamp: " + timestamp + " - " + e.getMessage());
+            return Instant.now();  // Fallback to current time
+        }
+    }
+    
+    /**
+     * Get timestamp as milliseconds (for watermark extraction)
+     */
+    public long getTimestampMillis() {
+        return getInstant().toEpochMilli();
     }
     
     /**
