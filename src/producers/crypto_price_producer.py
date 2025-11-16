@@ -10,7 +10,7 @@ import json
 import time
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, List
 import requests
 from kafka import KafkaProducer
@@ -152,7 +152,7 @@ class CryptoPriceProducer:
             'market_cap': coin_data.get('usd_market_cap'),
             'price_change_24h': coin_data.get('usd_24h_change'),
             'last_updated': coin_data.get('last_updated_at'),
-            'timestamp': datetime.utcnow().isoformat() + 'Z',  # Add Z for UTC timezone
+            'timestamp': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),  # ISO 8601 with Z
             'producer_id': 'python-producer-v1',
             'message_id': f"{symbol}-{int(time.time() * 1000)}"
         }

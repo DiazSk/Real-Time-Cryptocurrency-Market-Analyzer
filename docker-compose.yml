@@ -105,11 +105,7 @@ services:
     container_name: flink-jobmanager
     ports:
       - "8082:8081"  # Flink Web UI
-    command: >
-      bash -c "mkdir -p /opt/flink/data/checkpoints /opt/flink/data/savepoints /opt/flink/uploads &&
-               chown -R flink:flink /opt/flink/data &&
-               /docker-entrypoint.sh jobmanager"
-    user: root
+    command: jobmanager
     environment:
       - |
         FLINK_PROPERTIES=
@@ -120,7 +116,6 @@ services:
         parallelism.default: 2
     volumes:
       - flink_data:/opt/flink/data
-      - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
     networks:
       - crypto-network
     depends_on:
