@@ -7,6 +7,7 @@ import com.crypto.analyzer.models.OHLCCandle;
 import com.crypto.analyzer.models.OhlcDatabaseRecord;
 import com.crypto.analyzer.models.PriceAlert;
 import com.crypto.analyzer.models.PriceUpdate;
+import com.crypto.analyzer.sinks.RedisSinkFunction;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
@@ -139,7 +140,10 @@ public class CryptoPriceAggregator {
         // Write to PostgreSQL with UPSERT
         dbRecords.addSink(createPostgresSink()).name("PostgreSQL Sink");
         
-        LOG.info("1-minute windows with PostgreSQL sink configured");
+        // Write to Redis cache (latest candles)
+        ohlc1min.addSink(new RedisSinkFunction()).name("Redis Cache Sink");
+        
+        LOG.info("1-minute windows with PostgreSQL and Redis sinks configured");
         
         // 5b. 5-Minute Windows
         DataStream<OHLCCandle> ohlc5min = priceStream
