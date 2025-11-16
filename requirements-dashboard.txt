@@ -1,0 +1,48 @@
+# Streamlit Dashboard Dependencies - Phase 4, Week 9
+
+# ============================================
+# Dashboard Framework
+# ============================================
+streamlit==1.39.0              # Web dashboard framework with built-in auto-refresh
+
+# ============================================
+# Visualization
+# ============================================
+plotly==5.24.1                 # Interactive charts
+altair==5.4.1                  # Alternative charting library
+
+# ============================================
+# Data Processing
+# ============================================
+pandas==2.2.3                  # Data manipulation (already in main requirements)
+numpy==2.1.3                   # Numerical computing (already in main requirements)
+
+# ============================================
+# HTTP Client
+# ============================================
+requests==2.31.0               # API calls (already in main requirements)
+httpx==0.27.2                  # Alternative async HTTP client
+
+# ============================================
+# Date/Time
+# ============================================
+python-dateutil==2.9.0         # Date parsing utilities
+
+# ============================================
+# Utilities
+# ============================================
+pytz==2024.2                   # Timezone support
+
+# ============================================
+# Installation Instructions
+# ============================================
+# 
+# Install dashboard dependencies:
+#   pip install -r requirements-dashboard.txt
+#
+# Or install everything at once:
+#   pip install -r requirements.txt -r requirements-api.txt -r requirements-dashboard.txt
+#
+# Run dashboard:
+#   streamlit run src/dashboard/app.py
+#
