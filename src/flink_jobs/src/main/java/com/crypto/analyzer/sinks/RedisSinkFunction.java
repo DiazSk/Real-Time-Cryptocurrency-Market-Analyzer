@@ -15,13 +15,17 @@ import redis.clients.jedis.exceptions.JedisException;
 import java.time.Duration;
 
 /**
- * Custom Redis sink for caching latest OHLC candles.
+ * Custom Redis sink for caching latest OHLC candles with Pub/Sub notification.
+ * 
+ * Phase 4 - Week 8 - Day 4-5: Enhanced with Redis Pub/Sub
  * 
  * Stores latest candle for each cryptocurrency with TTL of 5 minutes.
+ * After writing to cache, publishes event to Redis Pub/Sub channel for real-time updates.
  * 
  * Key pattern: crypto:{SYMBOL}:latest
  * Value: JSON representation of OHLCCandle
  * TTL: 300 seconds (5 minutes)
+ * Pub/Sub Channel: crypto:updates
  * 
  * Uses Jedis connection pool for thread-safety and efficiency.
  * 
@@ -36,6 +40,9 @@ public class RedisSinkFunction extends RichSinkFunction<OHLCCandle> {
     private final String redisHost;
     private final int redisPort;
     private final int ttlSeconds;
+    
+    // Pub/Sub channel name
+    private static final String PUBSUB_CHANNEL = "crypto:updates";
     
     // Connection pool
     private transient JedisPool jedisPool;
@@ -64,7 +71,7 @@ public class RedisSinkFunction extends RichSinkFunction<OHLCCandle> {
     public void open(Configuration parameters) throws Exception {
         super.open(parameters);
         
-        LOG.info("Initializing Redis sink: {}:{}", redisHost, redisPort);
+        LOG.info("Initializing Redis sink with Pub/Sub: {}:{}", redisHost, redisPort);
         
         // Configure Jedis connection pool
         JedisPoolConfig poolConfig = new JedisPoolConfig();
@@ -95,11 +102,11 @@ public class RedisSinkFunction extends RichSinkFunction<OHLCCandle> {
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         
-        LOG.info("Redis sink initialized successfully");
+        LOG.info("Redis sink initialized successfully with Pub/Sub channel: {}", PUBSUB_CHANNEL);
     }
     
     /**
-     * Write OHLC candle to Redis cache
+     * Write OHLC candle to Redis cache and publish event
      */
     @Override
     public void invoke(OHLCCandle candle, Context context) throws Exception {
@@ -123,7 +130,12 @@ public class RedisSinkFunction extends RichSinkFunction<OHLCCandle> {
             // Write to Redis with TTL
             jedis.setex(key, ttlSeconds, json);
             
-            LOG.debug("Cached latest {} candle in Redis: {}", candle.getSymbol(), key);
+            // PUBLISH event to Pub/Sub channel for real-time updates
+            // This notifies all subscribers that new data is available
+            long subscriberCount = jedis.publish(PUBSUB_CHANNEL, json);
+            
+            LOG.debug("Cached and published {} candle to {} subscribers via {}", 
+                     candle.getSymbol(), subscriberCount, PUBSUB_CHANNEL);
             
         } catch (JedisException e) {
             LOG.error("Redis error caching {}: {}", candle.getSymbol(), e.getMessage(), e);
