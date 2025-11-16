@@ -1,30 +1,38 @@
 """
 Real-Time Cryptocurrency Market Analyzer Dashboard
-Phase 4 - Week 9 - Day 3-4 Enhanced
+Phase 4 - Week 9 - Day 5-7 Enhanced
 
-Main Streamlit application with candlestick charts and volume bars.
+Main Streamlit application with alerts, enhanced stats, and export functionality.
 """
 
 import streamlit as st
 from datetime import datetime
 import logging
+import pandas as pd
 import time
 import sys
 from pathlib import Path
 
-# Add dashboard directory to path for imports
+# Add dashboard directory to path for absolute imports
 dashboard_dir = Path(__file__).parent
 sys.path.insert(0, str(dashboard_dir))
 
 # Import dashboard components
 from components.price_cards import render_price_cards
-from components.line_chart import render_dual_price_chart, render_price_trend_chart
+from components.line_chart import render_dual_price_chart
 from components.stats import render_quick_stats
+
+# Import candlestick components
 from components.candlestick_chart import (
     render_candlestick_chart,
     render_dual_candlestick_chart,
     render_candlestick_with_ma
 )
+
+# Import new components
+from components.alerts import render_alert_panel, render_alerts_sidebar
+from components.enhanced_stats import render_enhanced_stats, render_performance_summary
+from components.export import render_export_buttons
 
 # Import utilities
 from utils.api_client import api_client
@@ -41,7 +49,7 @@ st.set_page_config(
     page_title="Crypto Market Analyzer",
     page_icon="🪙",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # Custom CSS for better styling
@@ -115,6 +123,55 @@ def fetch_timeframe_data(symbol: str, minutes: int):
 def main():
     """Main dashboard application"""
     
+    # Sidebar configuration
+    with st.sidebar:
+        st.title("🪙 Crypto Analyzer")
+        st.markdown("---")
+        
+        # About section
+        with st.expander("ℹ️ About This Project", expanded=False):
+            st.markdown("""
+            **Real-Time Cryptocurrency Market Analyzer**
+            
+            A production-grade streaming data platform built with:
+            - Apache Kafka (message streaming)
+            - Apache Flink (stream processing)
+            - Redis (caching layer)
+            - PostgreSQL (time-series storage)
+            - FastAPI (REST + WebSocket)
+            - Streamlit (visualization)
+            
+            **Features:**
+            - Real-time price tracking
+            - OHLC aggregation (1m, 5m, 15m)
+            - Anomaly detection (±5% spikes)
+            - Event-driven updates (Redis Pub/Sub)
+            - Professional candlestick charts
+            - Technical indicators (MA)
+            
+            **Author:** Zaid
+            **Purpose:** FAANG internship portfolio project
+            """)
+        
+        st.markdown("---")
+        
+        # Display alerts in sidebar
+        render_alerts_sidebar()
+        
+        # System status
+        st.markdown("---")
+        st.markdown("### System Status")
+        health = api_client.get_health()
+        if health and health.get("status") == "healthy":
+            st.success("✅ All Systems Operational")
+            services = health.get("services", {})
+            for service, status in services.items():
+                icon = "✅" if status == "healthy" else "❌"
+                st.caption(f"{icon} {service.title()}: {status}")
+        else:
+            st.error("❌ API Offline")
+    
+    # Main content
     # Title
     st.title("🪙 Real-Time Cryptocurrency Market Analyzer")
     st.markdown("### Live Price Tracking with Event-Driven Updates")
@@ -145,6 +202,22 @@ Wait 2 minutes for data to flow through pipeline
     # Display quick stats
     if btc_data or eth_data:
         render_quick_stats(btc_data, eth_data)
+    
+    # Alerts panel
+    st.markdown("---")
+    alerts_data = api_client.get_alerts(symbol="ALL", limit=5, hours=24)
+    if alerts_data and alerts_data.get("alert_count", 0) > 0:
+        render_alert_panel(alerts_data)
+    
+    # Enhanced Statistics
+    st.markdown("---")
+    
+    # Fetch statistics for both symbols
+    btc_stats = api_client.get_statistics("BTC")
+    eth_stats = api_client.get_statistics("ETH")
+    
+    if btc_stats or eth_stats:
+        render_performance_summary(btc_stats, eth_stats)
     
     # Chart Selection Section
     st.markdown("---")
@@ -221,7 +294,6 @@ Wait 2 minutes for data to flow through pipeline
     elif chart_style == "Line Chart":
         if symbol_view == "Both (Side by Side)":
             if btc_df is not None or eth_df is not None:
-                from components.line_chart import render_dual_price_chart
                 render_dual_price_chart(
                     btc_df if btc_df is not None else pd.DataFrame(),
                     eth_df if eth_df is not None else pd.DataFrame()
@@ -253,6 +325,13 @@ Wait 2 minutes for data to flow through pipeline
         else:
             st.warning(f"No data available for {symbol_view}")
     
+    # Export functionality
+    if (btc_df is not None and not btc_df.empty) or (eth_df is not None and not eth_df.empty):
+        render_export_buttons(
+            btc_df if btc_df is not None else pd.DataFrame(),
+            eth_df if eth_df is not None else pd.DataFrame()
+        )
+    
     # Footer with last update time
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -268,5 +347,4 @@ Wait 2 minutes for data to flow through pipeline
 
 
 if __name__ == "__main__":
-    import pandas as pd  # Import here to avoid circular imports
     main()
