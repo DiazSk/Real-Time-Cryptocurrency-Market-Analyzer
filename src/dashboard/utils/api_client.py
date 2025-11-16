@@ -153,6 +153,25 @@ class CryptoAPIClient:
         
         return self._make_request("GET", f"/api/v1/historical/{symbol}/stats", params=params)
     
+    def get_alerts(self, symbol: str = "ALL", limit: int = 10, hours: int = 24) -> Optional[Dict]:
+        """
+        Get recent price anomaly alerts
+        
+        Args:
+            symbol: Cryptocurrency symbol (BTC, ETH, or ALL)
+            limit: Maximum alerts to return
+            hours: Hours to look back
+            
+        Returns:
+            Alerts response or None
+        """
+        params = {
+            "limit": limit,
+            "hours": hours
+        }
+        
+        return self._make_request("GET", f"/api/v1/alerts/{symbol}", params=params)
+    
     def get_24h_data(self, symbol: str) -> Optional[List[Dict]]:
         """
         Get last 24 hours of data for a cryptocurrency

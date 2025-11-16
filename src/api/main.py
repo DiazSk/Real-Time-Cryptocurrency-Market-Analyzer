@@ -29,7 +29,7 @@ from .database import db_manager
 from .middleware import PerformanceLoggingMiddleware, RequestValidationMiddleware
 
 # Import routers
-from .endpoints import latest, historical, websocket
+from .endpoints import latest, historical, websocket, alerts
 
 # Configure logging
 logging.basicConfig(
@@ -177,6 +177,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(latest.router, prefix="/api/v1")
 app.include_router(historical.router, prefix="/api/v1")
+app.include_router(alerts.router, prefix="/api/v1")
 app.include_router(websocket.router)
 
 
