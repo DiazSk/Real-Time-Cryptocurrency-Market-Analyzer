@@ -25,6 +25,9 @@ import sys
 from .config import settings
 from .database import db_manager
 
+# Import middleware
+from .middleware import PerformanceLoggingMiddleware, RequestValidationMiddleware
+
 # Import routers
 from .endpoints import latest, historical, websocket
 
@@ -57,6 +60,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add custom middleware
+app.add_middleware(PerformanceLoggingMiddleware)
+app.add_middleware(RequestValidationMiddleware)
 
 
 @app.on_event("startup")
