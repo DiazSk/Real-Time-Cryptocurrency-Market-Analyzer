@@ -16,6 +16,7 @@ load_dotenv()
 KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'localhost:9092')
 KAFKA_TOPIC_CRYPTO_PRICES = os.getenv('KAFKA_TOPIC', 'crypto-prices')
 KAFKA_CONSUMER_GROUP = os.getenv('KAFKA_CONSUMER_GROUP', 'crypto-analyzer-group')
+KAFKA_SECURITY_PROTOCOL = os.getenv('KAFKA_SECURITY_PROTOCOL', 'PLAINTEXT')
 
 # Producer Configuration
 KAFKA_PRODUCER_CONFIG = {
