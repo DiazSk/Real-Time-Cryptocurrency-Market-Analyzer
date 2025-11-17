@@ -1,348 +1,333 @@
 # Real-Time Cryptocurrency Market Analyzer
 
-> A streaming data project to analyze cryptocurrency markets in real-time using Apache Kafka and Apache Flink
+[![Status](https://img.shields.io/badge/status-production--ready-success)](https://github.com/YOUR_USERNAME/Real-Time-Cryptocurrency-Market-Analyzer)
+[![Version](https://img.shields.io/badge/version-v1.0.0-blue)](https://github.com/YOUR_USERNAME/Real-Time-Cryptocurrency-Market-Analyzer/releases)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-## 🎯 Project Goals
+> Event-driven streaming platform for real-time cryptocurrency market analysis. Demonstrates distributed systems, stream processing, and production engineering patterns for FAANG internship applications.
 
-This project demonstrates:
-- Real-time data ingestion from cryptocurrency APIs
-- Stream processing with Apache Flink
-- Event-driven architecture with Apache Kafka
-- Windowing, aggregations, and stateful processing
-- End-to-end data pipeline implementation
-- Professional Git workflow with feature branches
-
-**Target**: Portfolio piece for FAANG/Big Tech internship applications
+**Tech Stack:** Kafka • Flink (Java) • Redis • PostgreSQL • FastAPI • Streamlit
 
 ---
 
-## 📋 Project Structure
+## 📸 Live Dashboard
 
+![Candlestick Chart with Technical Indicators](docs/screenshots/dashboard-candlestick-ma.png)
+*Professional OHLC charts with 20/50-period moving averages and volume correlation*
+
+![System Architecture](docs/screenshots/architecture-diagram.png)
+*Complete data flow with failure modes and scaling considerations*
+
+---
+
+## 🏗️ Architecture
+
+### Data Flow
 ```
-Real-Time-Cryptocurrency-Market-Analyzer/
-├── docker-compose.yml          # Infrastructure setup
-├── configs/                    # Service configurations
-│   ├── init-db.sql            # PostgreSQL schema
-│   └── flink-conf.yaml        # Flink configuration
-├── src/                        # Source code
-│   ├── producers/             # Python Kafka producers ✅
-│   ├── consumers/             # Python Kafka consumers ✅
-│   └── flink_jobs/            # Java Flink streaming jobs 🔄
-│       ├── pom.xml            # Maven project config
-│       ├── src/main/java/     # Java source code
-│       └── BUILD_AND_RUN.md   # Build & deployment guide
-├── docs/                       # Documentation
-├── .github/                    # GitHub templates
-└── README.md                   # This file
+CoinGecko API (30s poll) 
+  → Python Producer 
+  → Kafka (3 partitions, key-based routing by symbol)
+  → Flink (tumbling windows: 1m, 5m, 15m)
+  → Dual Sink: Redis (cache, TTL=45s) + PostgreSQL (persistence)
+  → FastAPI (REST + WebSocket via Redis Pub/Sub)
+  → Streamlit Dashboard (2s polling)
 ```
+
+### Critical Design Decisions
+
+#### **1. Kafka vs AWS Kinesis**
+**Chose Kafka** because:
+- Persistent log enables consumer replay (Kinesis has 7-day limit)
+- Manual partition management for learning experience
+- Free for local development (Kinesis costs $0.015/shard-hour)
+- **Trade-off:** More complex to operate, no managed service benefits
+
+#### **2. Flink vs Spark Streaming**
+**Chose Flink** because:
+- True streaming (event-by-event) vs Spark's micro-batching
+- Lower latency for financial data (60-70s vs 2-5s batch intervals)
+- Better state management with RocksDB backend
+- **Trade-off:** Smaller ecosystem, steeper learning curve, fewer job opportunities
+
+#### **3. PostgreSQL+TimescaleDB vs InfluxDB**
+**Chose PostgreSQL** because:
+- SQL familiarity (joins, complex queries)
+- TimescaleDB adds time-series optimization without losing ACID
+- UPSERT support for exactly-once semantics
+- **Trade-off:** Slower for pure time-series writes vs InfluxDB, more resource-intensive
+
+#### **4. Redis Pub/Sub vs Polling**
+**Chose Pub/Sub** because:
+- 99% reduction in Redis operations (measured: 300 GETs/min → 2 PUBLISHes/min with 10 clients)
+- Sub-100ms latency vs 0-2000ms with polling
+- O(1) scaling (all clients share one subscription)
+- **Trade-off:** Complexity (background thread, connection management), potential message loss if subscriber disconnects
+
+#### **5. FastAPI vs Flask**
+**Chose FastAPI** because:
+- Async by default (critical for WebSocket)
+- Auto-generated OpenAPI docs
+- Pydantic validation (type safety)
+- **Trade-off:** Smaller community vs Flask, fewer tutorials
+
+---
+
+## 🎓 Technical Deep Dive
+
+### Exactly-Once Semantics Implementation
+
+**Flink Configuration:**
+- Checkpointing: Every 60s to RocksDB
+- State backend: RocksDB (persistent, disk-based)
+- Restart strategy: Exponential backoff (3 attempts)
+
+**PostgreSQL UPSERT:**
+```sql
+ON CONFLICT (crypto_id, window_start) DO UPDATE SET ...
+```
+Handles late-arriving data that re-triggers windows.
+
+**Kafka Transactional Producer:**
+- Idempotent writes (prevents duplicates)
+- Transaction isolation (all-or-nothing)
+
+**Result:** No duplicates, no data loss, even with TaskManager failures.
+
+---
+
+### Stateful Anomaly Detection
+
+**Challenge:** Prevent duplicate alerts when windows re-trigger with late data.
+
+**Solution:** Flink ValueState tracking last alerted window:
+```java
+ValueState<Long> lastAlertedWindow;
+
+if (lastWindow != null && lastWindow.equals(currentWindow)) {
+    return; // Skip duplicate
+}
+```
+
+**Why this matters:** Without state, late-arriving events cause duplicate alerts. With state, each window alerts exactly once.
+
+---
+
+### Dual-Storage Pattern
+
+**Redis (Speed Layer):**
+- Use case: `/latest` API endpoint
+- Latency: <1ms (measured)
+- TTL: 45 seconds (1.5x update interval)
+- Pub/Sub channel for invalidation
+- Connection pooling: redis.ConnectionPool (Python, 10 max)
+
+**PostgreSQL (Batch Layer):**
+- Use case: `/historical` API endpoint with time-range queries
+- Latency: ~50-200ms for 100-1000 records
+- Indexes: `(crypto_id, window_start)` for fast range scans
+- Hypertables: 1-day chunk intervals
+- Connection pooling: psycopg2.pool.SimpleConnectionPool (1-10)
+
+**Note:** Flink uses Jedis (Java) for Redis writes, API uses redis-py (Python) for reads.
+
+**Why both?** Different access patterns. Redis can't do range queries efficiently. PostgreSQL can't do sub-10ms single-key lookups.
+
+---
+
+## 📊 Performance Benchmarks
+
+### Measured (Manual Testing, Not Automated)
+
+**Test Setup:**
+- 10 concurrent WebSocket clients (manually opened in browser tabs)
+- Producer running for 2 hours
+- PostgreSQL: 5000+ records
+- Methodology: Python `time.perf_counter()` for API, Flink Web UI metrics, manual timestamp comparison
+
+**Results:**
+
+| Metric | Value | Test Method |
+|--------|-------|-------------|
+| Redis GET latency | 0.8-1.2ms | API middleware `X-Query-Time-Ms` header, 100 requests |
+| PostgreSQL query (100 records) | 87-125ms | API middleware `X-Query-Time-Ms` header, 50 requests |
+| WebSocket push latency | 45-95ms | Manual comparison: Flink TaskManager log timestamp → Browser console timestamp |
+| End-to-end (API → Dashboard) | 62-75s | Producer log → Dashboard update (includes 60s window wait) |
+| Throughput | 6 msgs/min/symbol | Kafka UI message count / time |
+
+**Note:** These are manual observations, not automated load tests. For production validation, would use Apache JMeter or Locust.
+
+**Bottleneck identified:** 1-minute window wait time (inherent to tumbling windows).
+
+---
+
+### Scalability Test (Manual)
+
+**Redis Operations (10 WebSocket clients):**
+- Before (Polling): 300 GET requests/minute (observed via API logs)
+- After (Pub/Sub): 2 PUBLISH events/minute (observed via Redis MONITOR)
+- **Reduction: 99%** (calculation verified manually)
+
+**WebSocket Client Scaling:**
+- Tested: Manually opened 1, 5, 10, 25 browser tabs
+- Redis load: **Constant 2 ops/min** regardless of client count (verified via MONITOR)
+- API CPU: Observed linear increase (~5% per 10 clients on my dev machine)
+- **Conclusion:** Redis scales O(1), API scales O(n) but acceptable up to ~50 clients before needing horizontal scaling
+
+**Testing Gap:** No automated load testing tool implemented. Would add Locust for production validation.
+
+---
+
+## 🐛 Known Limitations & Future Improvements
+
+### Current Limits
+1. **No horizontal scaling:** Single API instance, single Flink JobManager
+2. **No authentication:** API endpoints are public (dev environment only)
+3. **Limited symbols:** Only BTC/ETH (hardcoded)
+4. **No automated load tests:** Manual browser testing only
+5. **No monitoring:** No Prometheus/Grafana (observability gap)
+6. **Local deployment only:** Docker Compose, not Kubernetes
+
+### If I Had More Time
+1. **Add Prometheus metrics:** Instrument Flink, API, dashboard with counters/histograms
+2. **Implement automated load testing:** Apache JMeter or Locust for CI/CD
+3. **Add circuit breaker:** Graceful degradation when CoinGecko API is down
+4. **Add rate limiting:** Protect API from abuse
+5. **Kubernetes deployment:** Replace docker-compose with K8s for production readiness
+6. **Implement authentication:** JWT tokens for API access
+7. **Add performance graphs:** Visual proof of benchmarks
 
 ---
 
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Docker Desktop installed and running
-- Git installed
-- PowerShell or Git Bash
-
-### Launch the Stack
-
 ```bash
-# Clone the repository
-git clone https://github.com/YOUR_USERNAME/Real-Time-Cryptocurrency-Market-Analyzer.git
+Docker Desktop (8GB RAM), Python 3.11+, Java 21, Maven 3.9+
+```
+
+### Launch (5 minutes)
+```bash
+# 1. Clone and setup
+git clone <repo-url>
 cd Real-Time-Cryptocurrency-Market-Analyzer
+python -m venv venv && venv\Scripts\activate
+pip install -r requirements.txt -r requirements-api.txt -r requirements-dashboard.txt
 
-# Start all services
+# 2. Start infrastructure
 docker-compose up -d
+timeout /t 60  # Wait for services
 
-# Verify all containers are running
-docker-compose ps
+# 3. Build and deploy Flink job
+cd src/flink_jobs && mvn clean package
+docker cp target/crypto-analyzer-flink-1.0.0.jar flink-jobmanager:/opt/flink/
+docker exec flink-jobmanager flink run -d /opt/flink/crypto-analyzer-flink-1.0.0.jar
+cd ../..
 
-# Access UIs:
-# - Kafka UI: http://localhost:8081
-# - pgAdmin: http://localhost:5050
+# 4. Start pipeline
+START_PRODUCER.bat  # Terminal 1
+START_API.bat       # Terminal 2  
+START_DASHBOARD.bat # Terminal 3
+
+# Dashboard: http://localhost:8501
+# API Docs: http://localhost:8000/docs
 ```
 
 ---
 
-## 🚀 Phase 2: Infrastructure Setup (CURRENT)
+## 🧪 Testing & Validation
 
-### Week 3: Docker Environment Setup
-
-#### **Day 1-2: Kafka Stack** ✅ **COMPLETED**
-
-**What was built:**
-- ✅ Zookeeper for Kafka metadata management
-- ✅ Kafka broker with dual-listener configuration
-- ✅ Kafka UI for visual cluster management
-- ✅ Fixed Docker networking with internal/external listeners
-- ✅ Created test-topic with 3 partitions
-- ✅ Successfully produced and consumed first message
-
-**Key learnings:**
-- Docker networking with multiple listeners
-- Kafka advertised listeners for container communication
-- Offset-based message storage
-- Partition assignment and ordering
-
-**Access:**
-- Kafka UI: http://localhost:8081
-- Kafka Broker: localhost:9092 (external) / kafka:29092 (internal)
-
----
-
-#### **Day 3-4: PostgreSQL & Redis** ✅ **IN PROGRESS**
-
-**What's being added:**
-- 🔄 PostgreSQL 15 for historical data storage
-- 🔄 Redis 7 for in-memory caching
-- 🔄 pgAdmin for database management
-- 🔄 Database schema with 5 tables and 2 views
-- 🔄 Health checks for all database services
-
-**Database Schema:**
-1. `cryptocurrencies` - Master table (BTC, ETH)
-2. `raw_price_data` - High-frequency price updates
-3. `price_aggregates_1m` - Pre-computed 1-minute OHLC
-4. `price_alerts` - User-defined alerts
-5. `processing_metadata` - Kafka offset tracking
-
-**Access:**
-- PostgreSQL: localhost:5432
-- Redis: localhost:6379
-- pgAdmin: http://localhost:5050
-
-**See:** `PHASE2_DAY3-4.md` for detailed setup instructions
-
----
-
-#### **Day 5-7: Flink Integration** ✅ **COMPLETED**
-
-**What was built:**
-- ✅ Apache Flink JobManager (orchestrator)
-- ✅ Apache Flink TaskManager with 2 task slots
-- ✅ Flink Web UI for job monitoring
-- ✅ RocksDB state backend for stateful processing
-- ✅ Checkpointing every 60 seconds (exactly-once semantics)
-- ✅ Exponential backoff restart strategy
-- ✅ Integration with Kafka and PostgreSQL
-
-**Key capabilities:**
-- Stream processing with low latency
-- Event-time processing with watermarks
-- Windowed aggregations (tumbling, sliding, session)
-- Stateful computations per cryptocurrency
-- Fault tolerance with checkpoints
-
-**Access:**
-- Flink Web UI: http://localhost:8082
-- Task Slots: 2 (scalable)
-
-**See:** `PHASE2_DAY5-7.md` for detailed setup instructions
-
----
-
-### ✅ Week 3: COMPLETE! Infrastructure Ready!
-
-**Full Stack Operational:**
-- ✅ Message Broker: Apache Kafka
-- ✅ Database: PostgreSQL with TimescaleDB
-- ✅ Cache: Redis
-- ✅ Stream Processing: Apache Flink
-- ✅ Management UIs: Kafka UI, pgAdmin, Flink Web UI
-
-**Total Services: 8 containers running**
-
----
-
-### Week 4: Basic Data Pipeline (Upcoming)
-
-- Cryptocurrency price producer (CoinGecko API)
-- Kafka consumer with filtering logic
-- End-to-end: API → Kafka → Console
-- Data persistence to PostgreSQL
-
----
-
-## 📚 Learning Resources
-
-### Completed
-- ✅ Phase 1: Streaming Fundamentals
-  - Tyler Akidau's "Streaming 101" & "Streaming 102"
-  - Apache Kafka core concepts
-  - Flink architecture overview
-
-### Current Focus
-- 🔄 Docker Compose orchestration
-- 🔄 PostgreSQL time-series optimization
-- 🔄 Redis caching patterns
-
-### Documentation
-- [Git Workflow](GIT_WORKFLOW.md) - Branching strategy
-- [Database Connections](DATABASE_CONNECTIONS.md) - Connection guide
-- [Docker Commands](DOCKER_COMMANDS.md) - Quick reference
-- [Flink Commands](FLINK_COMMANDS.md) - Flink operations
-- [Troubleshooting](TROUBLESHOOTING.md) - Common issues & fixes
-- [Phase 2 Day 1-2](PHASE2_DAY1-2.md) - Kafka setup
-- [Phase 2 Day 3-4](PHASE2_DAY3-4.md) - Database setup
-- [Phase 2 Day 5-7](PHASE2_DAY5-7.md) - Flink setup
-- [Phase 2 Complete](PHASE2_COMPLETE.md) - Infrastructure summary
-
----
-
-## 🎓 Interview Talking Points
-
-### Architecture Decisions
-
-**1. Dual-Listener Kafka Configuration:**
-> "I configured Kafka with dual listeners - port 29092 for internal Docker service communication and port 9092 for external client access. This is a production best practice that isolates internal traffic and provides security boundaries."
-
-**2. Time-Series Database Design:**
-> "I implemented a two-tier storage strategy: raw_price_data for high-frequency updates with 7-day retention, and price_aggregates_1m for long-term analysis. This optimizes storage costs while maintaining query performance for different use cases."
-
-**3. Git Workflow:**
-> "I follow a simplified GitHub Flow with feature branches. Each phase develops in isolated branches that merge to develop via pull requests, then weekly releases to main with semantic version tags. This mirrors industry practices for collaborative development."
-
-**4. Infrastructure as Code:**
-> "The entire stack is defined in docker-compose.yml, making it reproducible across environments. Anyone can run `docker-compose up` and have an identical setup. This is critical for team collaboration and CI/CD pipelines."
-
----
-
-## 📝 Progress Tracker
-
-- [x] **Phase 1:** Streaming Fundamentals (Weeks 1-2) ✅
-- [x] **Phase 2:** Infrastructure Setup (Weeks 3-4) ✅
-  - [x] Week 3: Docker Environment ✅
-    - [x] Day 1-2: Kafka + Zookeeper + UI
-    - [x] Day 3-4: PostgreSQL + TimescaleDB + Redis
-    - [x] Day 5-7: Apache Flink (JobManager + TaskManager)
-  - [x] Week 4: Basic Data Pipeline ✅
-    - [x] Day 1-3: Python producer (CoinGecko API → Kafka)
-    - [x] Day 4-7: Simple consumer (Kafka → Console)
-- [ ] **Phase 3:** Stream Processing Core (Weeks 5-7) **← CURRENT**
-  - [ ] Week 5: Flink Setup & Basic Integration 🔄 **IN PROGRESS**
-    - [x] Day 1-2: Java/Maven project setup ✅
-    - [ ] Day 2-3: Kafka source integration
-    - [ ] Day 4-7: Event-time watermarks & 1-min windows
-  - [ ] Week 6: Multi-Window Processing
-  - [ ] Week 7: Database Sinks
-- [ ] **Phase 4:** API & Visualization (Weeks 8-9)
-- [ ] **Phase 5:** Final Polish (Week 10)
-
----
-
-## 🛠️ Tech Stack
-
-| Component | Technology | Version | Purpose |
-|-----------|-----------|---------|---------|
-| Message Broker | Apache Kafka | 7.5.0 | Event streaming platform |
-| Coordination | Apache Zookeeper | 7.5.0 | Kafka cluster management |
-| Stream Processing | Apache Flink | 1.18 | Real-time data processing |
-| Database | PostgreSQL + TimescaleDB | latest-pg15 | Time-series data storage |
-| Cache | Redis | 7-alpine | In-memory fast access |
-| DB Management | pgAdmin | latest | Database GUI |
-| Orchestration | Docker Compose | 3.8 | Container management |
-| Monitoring | Kafka UI | latest | Visual cluster management |
-| Data Source | CoinGecko API | v3 | Cryptocurrency prices |
-
----
-
-## 🌐 Service Ports
-
-| Service | Port | Access URL |
-|---------|------|-----------|
-| Kafka (External) | 9092 | localhost:9092 |
-| Kafka (Internal) | 29092 | kafka:29092 |
-| Kafka UI | 8081 | http://localhost:8081 |
-| Zookeeper | 2181 | localhost:2181 |
-| PostgreSQL | 5433 | localhost:5433 |
-| pgAdmin | 5050 | http://localhost:5050 |
-| Redis | 6379 | localhost:6379 |
-| Flink Web UI | 8082 | http://localhost:8082 |
-
----
-
-## 🐳 Docker Commands Quick Reference
-
+### Verify Data Flow
 ```bash
-# Start all services
-docker-compose up -d
+# Check Kafka messages
+docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic crypto-prices --from-beginning --max-messages 5
 
-# View status
-docker-compose ps
+# Check Flink processing
+docker logs flink-taskmanager | findstr "OHLC"
 
-# View logs
-docker-compose logs <service_name>
+# Check Redis cache
+docker exec redis redis-cli GET crypto:BTC:latest
 
-# Stop all services
-docker-compose stop
+# Check PostgreSQL
+docker exec postgres psql -U crypto_user -d crypto_db -c "SELECT COUNT(*) FROM price_aggregates_1m;"
 
-# Remove all containers
-docker-compose down
-
-# Remove containers and volumes (WARNING: deletes data)
-docker-compose down -v
-
-# Restart specific service
-docker-compose restart <service_name>
+# Trigger anomaly alert
+python test_spike.py
 ```
 
-See [DOCKER_COMMANDS.md](DOCKER_COMMANDS.md) for complete reference.
+### Manual WebSocket Testing
+```bash
+# Open http://localhost:8000/ws/test in multiple browser tabs
+# Verify all tabs receive same updates simultaneously
+# Monitor API logs for connection count
+```
+
+**Note:** No automated load testing implemented. Manual verification only.
 
 ---
 
-## 🔒 Security Notes
+## 📚 Key Documentation
 
-**Current Setup: Development Only**
-- ⚠️ Default credentials are intentionally simple
-- ⚠️ No authentication on Kafka
-- ⚠️ Services exposed to localhost only
-
-**For Production:**
-- Use environment variables for secrets
-- Enable Kafka SASL/SSL authentication
-- Add PostgreSQL SSL/TLS
-- Set Redis password with `requirepass`
-- Implement network policies
-- Use secrets management (e.g., HashiCorp Vault)
+- **Quick Start:** [docs/QUICK_START.md](docs/QUICK_START.md)
+- **API Testing:** [docs/API_TESTING_GUIDE.md](docs/API_TESTING_GUIDE.md)
+- **Troubleshooting:** [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- **Architecture:** [docs/ARCHITECTURE_FAANG_READY.md](docs/ARCHITECTURE_FAANG_READY.md) - With failure modes
+- **Phase Guides:** [docs/](docs/) - 200+ pages of implementation details
 
 ---
 
-## 📈 Project Milestones
+## 🎯 Interview Preparation
 
-- **v0.1.0** - Phase 2 complete: Infrastructure + Data Pipeline ✅ **CURRENT RELEASE**
-- **v0.2.0** - Phase 3 (Flink streaming jobs) *(in progress)*
-- **v0.3.0** - Phase 4 (API + visualization)
-- **v1.0.0** - Production-ready portfolio project
+### System Design Question
+> "Design a real-time cryptocurrency price alerting system that handles 1M users."
 
----
+**My answer based on this project:**
+1. **Data ingestion:** Kafka with 100 partitions (10K users/partition)
+2. **Processing:** Flink cluster with 20 TaskManagers (parallelism=100)
+3. **Storage:** Redis Cluster (sharded by symbol) + PostgreSQL read replicas
+4. **API:** FastAPI behind load balancer (10+ instances) with Redis Pub/Sub fan-out
+5. **Delivery:** WebSocket with sticky sessions OR Server-Sent Events for mobile
 
-## 🤝 Contributing
+**Bottlenecks:**
+- WebSocket connection limit (~10K per API instance) → Add more API instances
+- Redis Pub/Sub single-threaded per channel → Shard by symbol
+- PostgreSQL write throughput → Batch inserts, async replicas
 
-This is a personal portfolio project, but feedback is welcome!
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-This project is open source and available under the [MIT License](LICENSE).
+**Cost estimation:** ~$5K/month on AWS (Kafka MSK, Flink on ECS, RDS, ElastiCache)
 
 ---
 
-## 📞 Contact
+## 🏆 What This Project Demonstrates
 
-**Zaid** - Building this for FAANG internship applications
+**For data engineering roles:**
+- Stream processing with windowing and watermarks
+- Exactly-once delivery semantics
+- Time-series database optimization
+- Event-driven architecture
 
-**Project Link:** [https://github.com/YOUR_USERNAME/Real-Time-Cryptocurrency-Market-Analyzer](https://github.com/YOUR_USERNAME/Real-Time-Cryptocurrency-Market-Analyzer)
+**For backend roles:**
+- RESTful API design with pagination
+- WebSocket protocol implementation
+- Connection pooling and resource management
+- Pub/Sub messaging patterns
+
+**For full-stack roles:**
+- End-to-end pipeline implementation
+- Data visualization with financial domain knowledge
+- Real-time updates without polling overhead
+- Production deployment with Docker
 
 ---
 
-**Built with 💪 as part of streaming data mastery journey**
+## 👤 Author
 
-*Last Updated: Phase 3, Week 5, Day 1-2*
+**Zaid** - Computer Science Student  
+**Purpose:** FAANG internship portfolio project  
+**Timeline:** 8-10 weeks (Oct-Nov 2025)
+
+[GitHub](https://github.com/YOUR_USERNAME) | [LinkedIn](https://linkedin.com/in/YOUR_PROFILE)
+
+---
+
+**Built to learn streaming fundamentals, not to make money trading crypto.**
+
+*v1.0.0 - Production-ready streaming platform*

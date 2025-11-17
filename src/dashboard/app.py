@@ -228,9 +228,10 @@ Wait 2 minutes for data to flow through pipeline
     
     with col1:
         timeframe = st.selectbox(
-            "Timeframe:",
-            ["1 Hour", "4 Hours", "12 Hours", "24 Hours"],
-            key="timeframe_selector"
+            "Show Last:",
+            ["15 Minutes", "30 Minutes", "1 Hour", "2 Hours", "4 Hours", "24 Hours"],
+            key="timeframe_selector",
+            help="Display the most recent N minutes of 1-minute candles"
         )
     
     with col2:
@@ -241,11 +242,13 @@ Wait 2 minutes for data to flow through pipeline
             key="chart_style"
         )
     
-    # Map timeframe to minutes
+    # Map timeframe to minutes (for fetching 1-min candles from last N minutes)
     timeframe_map = {
+        "15 Minutes": 15,
+        "30 Minutes": 30,
         "1 Hour": 60,
+        "2 Hours": 120,
         "4 Hours": 240,
-        "12 Hours": 720,
         "24 Hours": 1440
     }
     
