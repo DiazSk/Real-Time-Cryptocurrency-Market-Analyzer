@@ -86,18 +86,24 @@ CREATE INDEX IF NOT EXISTS idx_agg_1m_crypto_window ON price_aggregates_1m(crypt
 -- ============================================
 -- 4. PRICE ALERTS TABLE
 -- ============================================
--- Stores user-defined price alerts (for future features)
+-- Stores anomaly detection alerts from Flink
 
 CREATE TABLE IF NOT EXISTS price_alerts (
     id SERIAL PRIMARY KEY,
     crypto_id INTEGER NOT NULL REFERENCES cryptocurrencies(id),
-    alert_type VARCHAR(20) NOT NULL CHECK (alert_type IN ('above', 'below', 'change')),
-    threshold_value DECIMAL(20, 8) NOT NULL,
-    is_triggered BOOLEAN DEFAULT false,
-    triggered_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    alert_type VARCHAR(20) NOT NULL CHECK (alert_type IN ('PRICE_SPIKE', 'PRICE_DROP')),
+    price_change_pct DECIMAL(10, 4) NOT NULL,
+    old_price DECIMAL(20, 8) NOT NULL,
+    new_price DECIMAL(20, 8) NOT NULL,
+    window_start TIMESTAMP NOT NULL,
+    window_end TIMESTAMP NOT NULL,
+    severity VARCHAR(10) DEFAULT 'LOW',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Index for efficient querying by time
+CREATE INDEX IF NOT EXISTS idx_alerts_created_at ON price_alerts(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_crypto_time ON price_alerts(crypto_id, created_at DESC);
 
 -- ============================================
 -- 5. PROCESSING METADATA TABLE
