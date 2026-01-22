@@ -1,3 +1,29 @@
+# ============================================
+# LITE MODE - Real-Time Cryptocurrency Market Analyzer
+# ============================================
+#
+# For systems with <16GB RAM that can't run the full Flink cluster.
+# Skips Flink (JobManager + TaskManager) and uses Python-based processing.
+#
+# Memory Requirements:
+#   Full Mode: ~8-10GB RAM (Zookeeper + Kafka + Flink + Redis + Postgres)
+#   Lite Mode: ~2-3GB RAM (Zookeeper + Kafka + Redis + Postgres)
+#
+# Usage:
+#   docker-compose -f docker-compose-lite.yml up -d
+#
+# What's Included:
+#   ✅ Zookeeper + Kafka (message streaming)
+#   ✅ Redis (caching)
+#   ✅ PostgreSQL/TimescaleDB (database)
+#   ✅ Kafka UI (monitoring)
+#   ❌ Flink JobManager/TaskManager (skipped)
+#
+# In Lite Mode, use Python consumers instead of Flink for processing:
+#   python src/consumers/simple_consumer.py
+#
+# ============================================
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -5,6 +31,8 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+      # Reduced heap size for lite mode
+      KAFKA_HEAP_OPTS: "-Xmx256m -Xms256m"
     ports:
       - "2181:2181"
     volumes:
@@ -14,10 +42,11 @@ services:
       - crypto-network
     restart: unless-stopped
     healthcheck:
-      test: echo ruok | nc localhost 2181 || exit 1
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
@@ -39,14 +68,20 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_RETENTION_HOURS: 24
+      # Reduced heap size for lite mode
+      KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
     volumes:
       - kafka_data:/var/lib/kafka/data
     networks:
       - crypto-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1",
+        ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -63,6 +98,8 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      # Reduced memory for lite mode
+      JAVA_OPTS: "-Xmx256m"
     networks:
       - crypto-network
     restart: unless-stopped
@@ -72,9 +109,12 @@ services:
     image: timescale/timescaledb:latest-pg15
     container_name: postgres
     environment:
-      POSTGRES_DB: crypto_db
-      POSTGRES_USER: crypto_user
-      POSTGRES_PASSWORD: crypto_pass
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_db}
+      POSTGRES_USER: ${POSTGRES_USER:-crypto_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crypto_pass}
+      # Reduced memory settings for lite mode
+      POSTGRES_SHARED_BUFFERS: 128MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 256MB
     ports:
       - "5433:5432"
     volumes:
@@ -83,7 +123,11 @@ services:
     networks:
       - crypto-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U crypto_user -d crypto_db"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-crypto_user} -d ${POSTGRES_DB:-crypto_db}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -93,7 +137,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: redis
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
@@ -105,80 +149,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # pgAdmin - PostgreSQL GUI
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: pgadmin
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@crypto.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-    ports:
-      - "5050:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks:
-      - crypto-network
-    depends_on:
-      - postgres
-
-  # Apache Flink JobManager - Orchestrates stream processing jobs
-  jobmanager:
-    image: flink:1.18-scala_2.12-java11
-    container_name: flink-jobmanager
-    ports:
-      - "8082:8081"  # Flink Web UI
-    command: jobmanager
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: jobmanager
-        jobmanager.memory.process.size: 2048m
-        taskmanager.memory.process.size: 1728m
-        taskmanager.numberOfTaskSlots: 2
-        parallelism.default: 2
-    volumes:
-      - flink_data:/opt/flink/data
-    networks:
-      - crypto-network
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8081/overview || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-
-  # Apache Flink TaskManager - Executes stream processing tasks
-  taskmanager:
-    image: flink:1.18-scala_2.12-java11
-    container_name: flink-taskmanager
-    depends_on:
-      jobmanager:
-        condition: service_healthy
-    command: taskmanager
-    environment:
-      - |
-        FLINK_PROPERTIES=
-        jobmanager.rpc.address: jobmanager
-        jobmanager.memory.process.size: 2048m
-        taskmanager.memory.process.size: 1728m
-        taskmanager.numberOfTaskSlots: 2
-        parallelism.default: 2
-    volumes:
-      - flink_data:/opt/flink/data
-      - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
-    networks:
-      - crypto-network
-    scale: 1  # Can scale to multiple TaskManagers later
 
 networks:
   crypto-network:
@@ -194,8 +164,4 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
-    driver: local
-  pgadmin_data:
-    driver: local
-  flink_data:
     driver: local
