@@ -58,16 +58,37 @@ public class CryptoPriceAggregator {
     
     private static final Logger LOG = LoggerFactory.getLogger(CryptoPriceAggregator.class);
     
-    // Kafka configuration
-    private static final String KAFKA_BOOTSTRAP_SERVERS = "kafka:29092";
-    private static final String INPUT_TOPIC = "crypto-prices";
-    private static final String ALERT_TOPIC = "crypto-alerts";
-    private static final String CONSUMER_GROUP_ID = "flink-crypto-postgres-analyzer";
+    // Kafka configuration - reads from environment variables with defaults
+    private static final String KAFKA_BOOTSTRAP_SERVERS = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092");
+    private static final String INPUT_TOPIC = getEnvOrDefault("KAFKA_INPUT_TOPIC", "crypto-prices");
+    private static final String ALERT_TOPIC = getEnvOrDefault("KAFKA_ALERT_TOPIC", "crypto-alerts");
+    private static final String CONSUMER_GROUP_ID = getEnvOrDefault("KAFKA_CONSUMER_GROUP", "flink-crypto-postgres-analyzer");
     
-    // PostgreSQL configuration
-    private static final String POSTGRES_URL = "jdbc:postgresql://postgres:5432/crypto_db";
-    private static final String POSTGRES_USER = "crypto_user";
-    private static final String POSTGRES_PASSWORD = "crypto_pass";
+    // PostgreSQL configuration - reads from environment variables with defaults
+    private static final String POSTGRES_HOST = getEnvOrDefault("POSTGRES_HOST", "postgres");
+    private static final String POSTGRES_PORT = getEnvOrDefault("POSTGRES_PORT", "5432");
+    private static final String POSTGRES_DB = getEnvOrDefault("POSTGRES_DB", "crypto_db");
+    private static final String POSTGRES_URL = String.format("jdbc:postgresql://%s:%s/%s", POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB);
+    private static final String POSTGRES_USER = getEnvOrDefault("POSTGRES_USER", "crypto_user");
+    private static final String POSTGRES_PASSWORD = getEnvOrDefault("POSTGRES_PASSWORD", "crypto_pass");
+    
+    // Redis configuration - reads from environment variables with defaults  
+    private static final String REDIS_HOST = getEnvOrDefault("REDIS_HOST", "redis");
+    private static final int REDIS_PORT = Integer.parseInt(getEnvOrDefault("REDIS_PORT", "6379"));
+    
+    /**
+     * Get environment variable with fallback default value.
+     * This allows configuration via environment variables without recompiling.
+     */
+    private static String getEnvOrDefault(String key, String defaultValue) {
+        String value = System.getenv(key);
+        if (value == null || value.trim().isEmpty()) {
+            LOG.info("Using default for {}: {}", key, key.contains("PASSWORD") ? "****" : defaultValue);
+            return defaultValue;
+        }
+        LOG.info("Using env for {}: {}", key, key.contains("PASSWORD") ? "****" : value);
+        return value;
+    }
     
     public static void main(String[] args) throws Exception {
         
@@ -140,8 +161,8 @@ public class CryptoPriceAggregator {
         // Write to PostgreSQL with UPSERT
         dbRecords.addSink(createPostgresSink()).name("PostgreSQL Sink");
         
-        // Write to Redis cache (latest candles)
-        ohlc1min.addSink(new RedisSinkFunction()).name("Redis Cache Sink");
+        // Write to Redis cache (latest candles) - use configurable Redis connection
+        ohlc1min.addSink(new RedisSinkFunction(REDIS_HOST, REDIS_PORT, 300)).name("Redis Cache Sink");
         
         LOG.info("1-minute windows with PostgreSQL and Redis sinks configured");
         
