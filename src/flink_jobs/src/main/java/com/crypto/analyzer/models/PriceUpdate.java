@@ -90,8 +90,22 @@ public class PriceUpdate implements Serializable {
         this.priceChange24h = priceChange24h;
     }
     
-    public String getTimestamp() {
+    /**
+     * Get timestamp as ISO 8601 string
+     */
+    public String getTimestampString() {
         return timestamp;
+    }
+    
+    /**
+     * Get timestamp as milliseconds (for watermark extraction)
+     */
+    public long getTimestamp() {
+        try {
+            return Instant.parse(timestamp).toEpochMilli();
+        } catch (Exception e) {
+            return System.currentTimeMillis();  // Fallback to current time
+        }
     }
     
     public void setTimestamp(String timestamp) {
