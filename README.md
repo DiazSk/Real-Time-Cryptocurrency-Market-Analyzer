@@ -1,214 +1,269 @@
 # Real-Time Cryptocurrency Market Analyzer
 
-[![Status](https://img.shields.io/badge/status-production--ready-success)](https://github.com/YOUR_USERNAME/Real-Time-Cryptocurrency-Market-Analyzer)
-[![Version](https://img.shields.io/badge/version-v1.0.0-blue)](https://github.com/YOUR_USERNAME/Real-Time-Cryptocurrency-Market-Analyzer/releases)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-> **Enterprise-grade streaming data pipeline** engineered for low-latency financial market analysis. Implements distributed stateful processing, exactly-once semantics, and a hybrid hot/cold storage architecture.
+A streaming data pipeline that ingests live cryptocurrency prices from the CoinGecko API, aggregates them into OHLC candlesticks using Apache Flink, and serves the results through a FastAPI backend and Streamlit dashboard.
+
+Supports **BTC** and **ETH**. Runs entirely in Docker.
 
 ---
 
-## 📖 System Overview
+## Architecture
 
-This platform ingests, processes, and visualizes cryptocurrency market data in real-time. It is designed to demonstrate advanced **Data Engineering** competencies, specifically in distributed stream processing, fault tolerance, and high-throughput system design.
+```
+CoinGecko API
+     │
+     ▼
+Python Producer  (tenacity retry + exponential backoff)
+     │
+     ▼  Kafka topic: crypto-prices
+     │
+     ▼
+Apache Flink  (Java, event-time, tumbling windows)
+ ├─ 1-min OHLC  ──► PostgreSQL / TimescaleDB  (UPSERT)
+ ├─ 1-min OHLC  ──► Redis  (latest candle, 300s TTL)
+ ├─ 5-min OHLC  ──► stdout
+ ├─ 15-min OHLC ──► stdout
+ └─ Anomaly Detector  ──► Kafka topic: crypto-alerts
+                               │
+                               ▼
+                          FastAPI alerts endpoint
+     │
+     ▼
+FastAPI  (asyncpg + redis.asyncio, no blocking I/O)
+ ├─ GET /api/v1/latest/{symbol}     ← Redis
+ ├─ GET /api/v1/historical/{symbol} ← PostgreSQL
+ ├─ GET /api/v1/alerts              ← PostgreSQL
+ └─ WS  /ws/prices/{symbol}        ← Redis Pub/Sub
+     │
+     ▼
+Streamlit Dashboard  (st_autorefresh every 2s)
+```
 
-The system processes raw price ticks into aggregated OHLC (Open, High, Low, Close) candlesticks using tumbling windows, delivering updates to end-users with sub-second latency while simultaneously persisting historical data for analytical queries.
+### Key implementation details
 
-**Core Tech Stack:**
-
-- **Ingestion:** Apache Kafka (Event streaming & decoupling)
-- **Processing:** Apache Flink (Stateful computations & windowing)
-- **Storage (Hot):** Redis (Pub/Sub & caching)
-- **Storage (Cold):** PostgreSQL (TimescaleDB-optimized relational storage)
-- **Serving:** FastAPI (Async REST & WebSocket)
-- **Visualization:** Streamlit (Real-time dashboard)
-
----
-
-## 🏗️ Data Architecture
-
-![System Architecture](docs/screenshots/architecture-diagram.png)
-
-### Pipeline Specification
-
-1.  **Ingestion Source**:
-    - Python producers poll CoinGecko API (configurable intervals).
-    - Data is serialized to JSON and pushed to Kafka topics partitioned by `symbol` (ensuring causal ordering per asset).
-
-2.  **Stream Processing (The Core)**:
-    - **Engine**: Apache Flink (Java).
-    - **Windowing**: Tumbling windows (1m, 5m, 15m).
-    - **Watermarking**: Event-time processing to handle out-of-order data.
-    - **State Management**: RocksDB backend for large state capability.
-
-3.  **Dual-Path Storage**:
-    - **Speed Layer (Redis)**: Stores latest computed window for immediate retrieval (`O(1)` access) and broadcasts updates via Pub/Sub to WebSocket clients.
-    - **Batch Layer (PostgreSQL)**: Persists all windowed aggregates with `UPSERT` logic to ensure idempotency and historical data integrity.
-
-4.  **Data Serving**:
-    - **REST API**: Exposes historical data via efficient range queries.
-    - **WebSocket**: Subscribes to Redis channels to push real-time updates to the frontend, eliminating polling overhead.
-
----
-
-## ⚙️ Engineering Deep Dive
-
-### 1. Ingestion & Event Ordering
-
-- **Kafka Partitioning**: Data is keyed by cryptocurrency symbol (e.g., `BTC`, `ETH`). This guarantees that all updates for a specific asset land in the same partition, preserving strict event ordering required for accurate OHLC calculation.
-- **Idempotency**: The producer utilizes Kafka's idempotent settings to prevent duplicate messages during network retries.
-
-### 2. Stream Processing Strategy (Flink)
-
-- **Event Time Processing**: The system uses _Event Time_ (timestamp embedded in data) rather than _Processing Time_. This ensures accuracy even if the pipeline experiences lag.
-- **Custom Watermark Strategy**: Implements a bounded out-of-orderness generator to handle late-arriving events within a configurable tolerance window.
-- **Anomaly Detection**: A co-located function detects price spikes by maintaining a stateful history of moving averages, alerting instantly without waiting for window closure.
-
-### 3. Reliability & Fault Tolerance
-
-- **Exactly-Once Semantics**: Achieved through:
-  - **Source**: Kafka consumer offsets committed only after successful checkpoints.
-  - **State**: Flink Checkpoints (Chandy-Lamport algorithm) persist in-flight state to durable storage every 60s.
-  - **Sink**: PostgreSQL `ON CONFLICT DO UPDATE` (Upsert) handles replayed records idempotently.
-- **Failure Recovery**: Configured with a "Fixed Delay" restart strategy. If a TaskManager fails, the job restarts from the last successful checkpoint, ensuring zero data loss.
-
-### 4. Hybrid Storage Design
-
-- **Why Redis?** Relational DBs cannot sustain the high read concurrency of real-time dashboards (10k+ clients). Redis handles the "fan-out" via Pub/Sub and serves the "latest state" with sub-millisecond latency.
-- **Why PostgreSQL?** Redis is volatile. PostgreSQL provides ACID compliance for historical records. We utilize `(crypto_id, window_start)` composite indexes to optimize time-range queries for historical charting.
+| Concern | Implementation |
+|---|---|
+| Retry / backoff | `tenacity` `@retry` with `wait_random_exponential`, replaces hand-rolled sleep loops |
+| Flink checkpointing | Chandy-Lamport snapshots every 60 s, `EXACTLY_ONCE`, retained on cancellation |
+| Flink state TTL | `AnomalyDetector` state expires after 1 h to prevent unbounded RocksDB growth |
+| Kafka alert sink | `DeliveryGuarantee.EXACTLY_ONCE` (Flink-Kafka transactional integration) |
+| PostgreSQL sink | At-least-once + idempotent `ON CONFLICT DO UPDATE` (same visible result) |
+| Async API drivers | `asyncpg` + `redis.asyncio`; connection pools stored on `app.state` via lifespan |
+| TimescaleDB retention | Native `add_retention_policy` — 7 days for raw data, 90 days for aggregates |
+| Dashboard refresh | `st_autorefresh` (non-blocking); `time.sleep + st.rerun` was removed |
 
 ---
 
-## ⚖️ Critical Design Decisions & Trade-offs
+## Prerequisites
 
-| Decision          | Alternative     | Rationale for Choice                                                                                                                                | Trade-off                                                                                                                   |
-| :---------------- | :-------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
-| **Apache Flink**  | Spark Streaming | Flink offers true row-at-a-time processing (lower latency) and superior state management compared to Spark's micro-batching.                        | Steeper learning curve; more complex deployment than Spark.                                                                 |
-| **Apache Kafka**  | AWS Kinesis     | Kafka provides log persistence (replayability) and full control over partition management, crucial for understanding distributed systems internals. | Operational overhead of managing Zookeeper/Brokers (vs. managed Kinesis).                                                   |
-| **Redis Pub/Sub** | Client Polling  | Reduces DB load by 99% (O(1) write vs O(N) reads). Enables sub-100ms latency for end-users.                                                         | Complexity of maintaining persistent WebSocket connections; potential message loss if client disconnects (Fire-and-forget). |
-| **PostgreSQL**    | InfluxDB        | SQL ecosystem maturity (JOINs, complex aggregations) and ACID compliance were prioritized over pure time-series write throughput.                   | Lower write throughput for massive scale metrics compared to purpose-built TSDBs.                                           |
-
----
-
-## 📊 Performance Metrics
-
-_Measurements taken on a local dev environment (Docker, 4 vCPU, 16GB RAM)._
-
-- **End-to-End Latency**: ~65ms (From Flink window close -> Dashboard update)
-- **Redis Read Latency**: 0.8ms - 1.2ms (99th percentile)
-- **PostgreSQL Query**: 87ms - 125ms (Fetching 100 historical records)
-- **Throughput**: Validated up to 6000 events/minute per partition without backpressure.
-- **Efficiency**: Switching from Polling to Pub/Sub reduced Redis operations from **300 ops/min** to **2 ops/min** for 10 connected clients.
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Docker Desktop & Docker Compose
-- Java 11 or 17 (for Flink compilation - must match Flink image)
+- Docker Desktop with Compose (≥ v2)
 - Python 3.11+
+- Java 11 or 17 + Maven (only needed to rebuild the Flink JAR)
 
-### System Requirements
+**Minimum RAM:** 8 GB allocated to Docker (JobManager: 2 GB, TaskManager: 1.7 GB, plus Kafka/PostgreSQL/Redis).
 
-| Mode          | RAM Required | Best For                           |
-| ------------- | ------------ | ---------------------------------- |
-| **Full Mode** | 8-16GB+      | Production-like testing with Flink |
-| **Lite Mode** | 4-8GB        | Limited resources, demo purposes   |
+---
 
-### Deployment Options
+## Quick Start
 
-#### Cross-Platform Commands (Recommended)
-
-The project includes a cross-platform Python launcher that works on **Windows, Linux, and macOS**:
+### 1. Clone and configure
 
 ```bash
-# Setup virtual environment
+git clone https://github.com/YOUR_USERNAME/Real-Time-Cryptocurrency-Market-Analyzer.git
+cd Real-Time-Cryptocurrency-Market-Analyzer
+
+cp .env.example .env
+# Edit .env — at minimum set POSTGRES_PASSWORD and PGADMIN_PASSWORD
+```
+
+### 2. Install Python dependencies
+
+```bash
 python -m venv venv
-source venv/bin/activate    # Linux/macOS
-venv\Scripts\activate       # Windows
-pip install -r requirements.txt -r requirements-api.txt -r requirements-dashboard.txt
-
-# Start Docker services
-python run.py start              # Full mode (8GB+ RAM)
-python run.py start --lite       # Lite mode (<16GB RAM)
-
-# Run application components
-python run.py producer           # Start data ingestion
-python run.py api                # Start REST/WebSocket API
-python run.py dashboard          # Start visualization
-python run.py consumer           # Python consumer (lite mode only)
-
-# Utility commands
-python run.py status             # Check service status
-python run.py health             # Check service health
-python run.py logs kafka         # View service logs
-python run.py stop               # Stop all services
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt \
+            -r requirements-api.txt \
+            -r requirements-dashboard.txt
 ```
 
-#### Using Make (Linux/macOS/WSL)
+### 3. Start the pipeline
 
 ```bash
-make setup-all           # Install all dependencies
-make start               # Start full mode
-make start-lite          # Start lite mode
-make producer            # Run producer
-make api                 # Run API
-make dashboard           # Run dashboard
-make status              # Check status
-make help                # Show all commands
+bash scripts/start_pipeline.sh
 ```
 
-#### Compiling & Deploying Flink Job
+This script: checks dependencies → loads `.env` → runs `docker-compose up -d` → waits for Kafka, PostgreSQL, and Redis to be healthy → starts the producer in the background.
+
+### 4. Deploy the Flink job
+
+A pre-built JAR is not included. Build it first:
 
 ```bash
-# Build the JAR (requires Java 11 or 17)
 cd src/flink_jobs
 mvn clean package -DskipTests
+cd ../..
+```
 
-# Deploy to Flink cluster
-docker cp target/crypto-analyzer-flink-1.0.0.jar flink-jobmanager:/opt/flink/
-docker exec flink-jobmanager flink run -d /opt/flink/crypto-analyzer-flink-1.0.0.jar
+Then deploy:
 
-# Or using make:
+```bash
+# Copy JAR into the running JobManager container
+docker cp src/flink_jobs/target/crypto-analyzer-flink-1.0.0.jar \
+    flink-jobmanager:/opt/flink/
+
+# Submit the job
+docker exec flink-jobmanager \
+    flink run -d /opt/flink/crypto-analyzer-flink-1.0.0.jar
+
+# Or via Make:
 make build-flink
 make deploy-flink
 ```
 
-### Web Interfaces
+### 5. Start the API and dashboard
 
-| Service       | URL                        | Description                  |
-| ------------- | -------------------------- | ---------------------------- |
-| **Dashboard** | http://localhost:8501      | Real-time visualization      |
-| **Flink UI**  | http://localhost:8082      | Stream processing monitoring |
-| **API Docs**  | http://localhost:8000/docs | REST API documentation       |
-| **Kafka UI**  | http://localhost:8081      | Message queue monitoring     |
+```bash
+# In separate terminals:
+make api           # FastAPI on :8000
+make dashboard     # Streamlit on :8501
+```
 
-### Troubleshooting
+### 6. Stop / teardown
 
-See [docs/LOCAL_TESTING_GUIDE.md](docs/LOCAL_TESTING_GUIDE.md) for:
-
-- Common issues and solutions
-- Resource starvation fixes
-- Network configuration
-- Environment variable reference
+```bash
+bash scripts/stop_pipeline.sh    # stops producer + Flink job + docker-compose stop
+bash scripts/teardown.sh         # removes all containers and volumes (destructive)
+```
 
 ---
 
-## 🔮 Future Engineering Roadmap
+## Web Interfaces
 
-- **Observability**: Implement Prometheus/Grafana exporters for Flink metrics (lag, backpressure, checkpoint size).
-- **Scaling**: Transition to Kubernetes (EKS/GKE) for auto-scaling TaskManagers based on CPU load.
-- **Schema Registry**: Integrate Confluent Schema Registry to enforce Avro schemas for Kafka messages, preventing "poison pill" data.
-- **CI/CD**: Add automated load testing (Locust) and integration testing (Testcontainers) pipelines.
+| Service | URL | Notes |
+|---|---|---|
+| Streamlit dashboard | http://localhost:8501 | Live charts, alerts, export |
+| FastAPI docs | http://localhost:8000/docs | Interactive Swagger UI |
+| Flink Web UI | http://localhost:8082 | Job graph, checkpoints, metrics |
+| Kafka UI | http://localhost:8081 | Topic browser, consumer groups |
+| pgAdmin | http://localhost:5050 | PostgreSQL query tool |
+
+PostgreSQL is exposed on host port **5433** (not 5432) to avoid conflicts with local installs.
 
 ---
 
-## 👤 Author & Context
+## API Endpoints
 
-**Zaid** - _Data Engineer / Software Developer_
+```
+GET  /health                              Service health (Redis + PostgreSQL)
 
-This project serves as a comprehensive artifact demonstrating capability in building production-grade distributed data systems. It moves beyond "tutorial code" to address real-world challenges like out-of-order data, state consistency, and system observability.
+GET  /api/v1/latest/all                   Latest OHLC for BTC and ETH
+GET  /api/v1/latest/{symbol}              Latest OHLC for one symbol
 
-[GitHub](https://github.com/YOUR_USERNAME) | [LinkedIn](https://linkedin.com/in/YOUR_PROFILE)
+GET  /api/v1/historical/{symbol}          1-min candles, filterable by time range
+GET  /api/v1/historical/{symbol}/stats    Min/max/avg/volume summary
+GET  /api/v1/historical/{symbol}/latest   Most recent persisted candle
+
+GET  /api/v1/alerts                       Recent anomaly alerts (all symbols)
+GET  /api/v1/alerts/{symbol}              Alerts for one symbol
+
+WS   /ws/prices/{symbol}                  Real-time stream via Redis Pub/Sub
+```
+
+All responses include `X-Process-Time-Ms` (middleware) and `X-Request-ID` (UUID4, for tracing).
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env`. Required variables:
+
+| Variable | Default in example | Notes |
+|---|---|---|
+| `POSTGRES_PASSWORD` | `change_me_in_production` | **Must be set** |
+| `PGADMIN_PASSWORD` | `change_me_in_production` | **Must be set** |
+| `POSTGRES_USER` | `crypto_user` | |
+| `POSTGRES_DB` | `crypto_db` | |
+| `POSTGRES_HOST` | `localhost` | `postgres` when inside Docker network |
+| `POSTGRES_PORT` | `5433` | Host-side port |
+| `REDIS_HOST` | `localhost` | `redis` when inside Docker network |
+| `REDIS_PORT` | `6379` | |
+| `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | `kafka:29092` inside Docker |
+| `COINGECKO_API_KEY` | _(unset)_ | Optional; increases CoinGecko rate limits |
+| `LOG_LEVEL` | `INFO` | |
+
+---
+
+## Make Targets
+
+```bash
+make setup-all      # Create venv and install all dependencies
+make start          # docker-compose up (full mode)
+make stop           # docker-compose stop
+make status         # Container status
+make health         # Service health checks
+make logs           # Flink TaskManager logs
+make producer       # Run Python producer
+make api            # Run FastAPI (uvicorn)
+make dashboard      # Run Streamlit
+make build-flink    # mvn clean package
+make deploy-flink   # Build + submit Flink job
+make stop-flink     # Cancel running Flink job
+make clean          # Remove containers, volumes, build artifacts
+```
+
+---
+
+## Project Structure
+
+```
+.
+├── configs/
+│   ├── flink-conf.yaml          # Flink cluster configuration
+│   └── init-db.sql              # TimescaleDB schema + retention policies
+├── docs/                        # Operational guides (testing, commands, troubleshooting)
+├── scripts/
+│   ├── start_pipeline.sh        # Start everything with health checks
+│   ├── stop_pipeline.sh         # Graceful shutdown
+│   └── teardown.sh              # Full cleanup (destructive)
+├── src/
+│   ├── api/                     # FastAPI application
+│   │   ├── database.py          # asyncpg + redis.asyncio pools (lifespan)
+│   │   ├── endpoints/           # latest, historical, alerts, websocket
+│   │   ├── middleware.py        # Timing (perf_counter) + request tracing (UUID4)
+│   │   └── main.py
+│   ├── consumers/               # (Reserved for future consumers)
+│   ├── dashboard/               # Streamlit application
+│   ├── flink_jobs/              # Java Maven project
+│   │   └── src/main/java/com/crypto/analyzer/
+│   │       ├── CryptoPriceAggregator.java   # Main job: OHLC + sinks + checkpointing
+│   │       ├── functions/
+│   │       │   ├── AnomalyDetector.java     # KeyedProcessFunction, State TTL
+│   │       │   ├── OHLCAggregator.java
+│   │       │   └── OHLCWindowFunction.java
+│   │       ├── models/
+│   │       └── sinks/
+│   │           └── RedisSinkFunction.java
+│   └── producers/
+│       └── crypto_price_producer.py         # tenacity retry, Kafka producer
+├── docker-compose.yml
+├── requirements.txt             # Core + tenacity
+├── requirements-api.txt         # FastAPI, asyncpg, redis
+└── requirements-dashboard.txt  # Streamlit, plotly, streamlit-autorefresh
+```
+
+---
+
+## Docs
+
+Detailed guides are in [`docs/`](docs/):
+
+| File | Contents |
+|---|---|
+| `LOCAL_TESTING_GUIDE.md` | Setup walkthrough, common errors, resource requirements |
+| `TROUBLESHOOTING.md` | PostgreSQL/TimescaleDB setup postmortem and fixes |
+| `API_TESTING_GUIDE.md` | curl examples for every endpoint |
+| `FLINK_COMMANDS.md` | Flink CLI reference for job management and savepoints |
+| `DOCKER_COMMANDS.md` | Docker Compose cheat sheet |
+| `DATABASE_CONNECTIONS.md` | Connection strings for psycopg2, JDBC, redis-py, pgAdmin |
+| `REDIS_TESTING_GUIDE.md` | Verifying the Redis caching layer |
