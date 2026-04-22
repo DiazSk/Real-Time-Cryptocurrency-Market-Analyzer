@@ -67,14 +67,14 @@ services:
       - crypto-network
     restart: unless-stopped
 
-  # PostgreSQL with TimescaleDB - Time-series database
   postgres:
     image: timescale/timescaledb:latest-pg15
     container_name: postgres
+    env_file: .env
     environment:
-      POSTGRES_DB: crypto_db
-      POSTGRES_USER: crypto_user
-      POSTGRES_PASSWORD: crypto_pass
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "5433:5432"
     volumes:
@@ -82,14 +82,15 @@ services:
       - ./configs/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     networks:
       - crypto-network
+    # Double-$$ prevents Docker Compose from resolving the variable before passing
+    # it into the container, where the pg_isready command resolves it from the env.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U crypto_user -d crypto_db"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
 
-  # Redis - Caching layer
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -106,13 +107,13 @@ services:
       timeout: 5s
       retries: 5
 
-  # pgAdmin - PostgreSQL GUI
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: pgadmin
+    env_file: .env
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@crypto.com
-      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
       PGADMIN_CONFIG_SERVER_MODE: 'False'
     ports:
       - "5050:80"
@@ -123,12 +124,11 @@ services:
     depends_on:
       - postgres
 
-  # Apache Flink JobManager - Orchestrates stream processing jobs
   jobmanager:
     image: flink:1.18-scala_2.12-java11
     container_name: flink-jobmanager
     ports:
-      - "8082:8081"  # Flink Web UI
+      - "8082:8081"
     command: jobmanager
     environment:
       - |
@@ -157,7 +157,6 @@ services:
       retries: 3
       start_period: 60s
 
-  # Apache Flink TaskManager - Executes stream processing tasks
   taskmanager:
     image: flink:1.18-scala_2.12-java11
     container_name: flink-taskmanager
@@ -178,7 +177,7 @@ services:
       - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
     networks:
       - crypto-network
-    scale: 1  # Can scale to multiple TaskManagers later
+    scale: 1
 
 networks:
   crypto-network:

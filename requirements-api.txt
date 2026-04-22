@@ -1,41 +1,11 @@
-# FastAPI Backend Dependencies - Phase 4, Week 8
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
 
-# ============================================
-# FastAPI Framework
-# ============================================
-fastapi==0.115.5                 # Modern async web framework
-uvicorn[standard]==0.32.1        # ASGI server with websockets
-
-# ============================================
-# Database & Cache
-# ============================================
-psycopg2-binary==2.9.10         # PostgreSQL adapter
-redis==5.2.1                     # Redis client (already in main requirements)
+# Async database drivers — psycopg2 is intentionally absent; it blocks the event loop.
 asyncpg==0.30.0                  # Async PostgreSQL driver
+redis==5.2.1                     # Includes redis.asyncio for non-blocking Redis I/O
 
-# ============================================
-# Data Validation
-# ============================================
-pydantic==2.10.3                 # Data validation with FastAPI
-pydantic-settings==2.6.1         # Settings management
-
-# ============================================
-# CORS & Middleware
-# ============================================
-python-multipart==0.0.20         # Form data parsing
-
-# ============================================
-# Utilities
-# ============================================
-python-dotenv==1.0.1            # Environment variables (already in main)
-
-# ============================================
-# Installation Instructions
-# ============================================
-# 
-# Install FastAPI dependencies:
-#   pip install -r requirements-api.txt
-#
-# Or install everything at once:
-#   pip install -r requirements.txt -r requirements-api.txt
-#
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-multipart==0.0.20
+python-dotenv==1.0.1

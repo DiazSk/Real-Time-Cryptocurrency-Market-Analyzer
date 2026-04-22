@@ -15,6 +15,9 @@ import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.AbstractDeserializationSchema;
 import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.connector.base.DeliveryGuarantee;
+import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
+import org.apache.flink.streaming.api.CheckpointingMode;
+import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.connector.jdbc.JdbcConnectionOptions;
 import org.apache.flink.connector.jdbc.JdbcExecutionOptions;
 import org.apache.flink.connector.jdbc.JdbcSink;
@@ -39,42 +42,34 @@ import java.sql.Timestamp;
 import java.time.Duration;
 
 /**
- * Main Flink job with PostgreSQL database sink for OHLC data.
- * 
- * Phase 3 - Week 7 - Day 1-4: PostgreSQL JDBC Sink
- * 
- * Features:
- * - Multi-window processing (1-min, 5-min, 15-min)
- * - PostgreSQL JDBC sink for 1-minute OHLC data
- * - Batch inserts (100 records per batch)
- * - UPSERT on conflict (crypto_id, window_start)
- * - Exactly-once semantics
- * - Connection pooling
- * - Anomaly detection with Kafka alerts
- * 
- * @author Zaid
+ * Main Flink streaming job: multi-window OHLC aggregation with PostgreSQL and Redis sinks.
+ *
+ * <p>Checkpointing is enabled with EXACTLY_ONCE mode so that the JDBC sink can participate
+ * in two-phase commit and the job can recover from failure without data loss or duplication.
+ * Parallelism is derived from FLINK_PARALLELISM env var (default 4) to match Kafka partitions.
  */
 public class CryptoPriceAggregator {
     
     private static final Logger LOG = LoggerFactory.getLogger(CryptoPriceAggregator.class);
     
-    // Kafka configuration - reads from environment variables with defaults
     private static final String KAFKA_BOOTSTRAP_SERVERS = getEnvOrDefault("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092");
     private static final String INPUT_TOPIC = getEnvOrDefault("KAFKA_INPUT_TOPIC", "crypto-prices");
     private static final String ALERT_TOPIC = getEnvOrDefault("KAFKA_ALERT_TOPIC", "crypto-alerts");
     private static final String CONSUMER_GROUP_ID = getEnvOrDefault("KAFKA_CONSUMER_GROUP", "flink-crypto-postgres-analyzer");
-    
-    // PostgreSQL configuration - reads from environment variables with defaults
+
     private static final String POSTGRES_HOST = getEnvOrDefault("POSTGRES_HOST", "postgres");
     private static final String POSTGRES_PORT = getEnvOrDefault("POSTGRES_PORT", "5432");
     private static final String POSTGRES_DB = getEnvOrDefault("POSTGRES_DB", "crypto_db");
     private static final String POSTGRES_URL = String.format("jdbc:postgresql://%s:%s/%s", POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB);
     private static final String POSTGRES_USER = getEnvOrDefault("POSTGRES_USER", "crypto_user");
     private static final String POSTGRES_PASSWORD = getEnvOrDefault("POSTGRES_PASSWORD", "crypto_pass");
-    
-    // Redis configuration - reads from environment variables with defaults  
+
     private static final String REDIS_HOST = getEnvOrDefault("REDIS_HOST", "redis");
     private static final int REDIS_PORT = Integer.parseInt(getEnvOrDefault("REDIS_PORT", "6379"));
+
+    // Default parallelism matches the number of Kafka partitions so each task slot
+    // owns exactly one partition, eliminating unnecessary shuffles.
+    private static final int PARALLELISM = Integer.parseInt(getEnvOrDefault("FLINK_PARALLELISM", "4"));
     
     /**
      * Get environment variable with fallback default value.
@@ -93,14 +88,24 @@ public class CryptoPriceAggregator {
     public static void main(String[] args) throws Exception {
         
         LOG.info("Starting Crypto Aggregator with PostgreSQL Sink...");
-        
-        // 1. Set up Flink execution environment
+
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setParallelism(1);
+        env.setParallelism(PARALLELISM);
+
+        // Checkpointing enables EXACTLY_ONCE delivery through the JDBC two-phase commit sink.
+        // Checkpoints are retained on cancellation so the job can resume without reprocessing.
+        env.enableCheckpointing(30_000, CheckpointingMode.EXACTLY_ONCE);
+        CheckpointConfig cpConfig = env.getCheckpointConfig();
+        cpConfig.setCheckpointTimeout(60_000);
+        cpConfig.setMinPauseBetweenCheckpoints(10_000);
+        cpConfig.setMaxConcurrentCheckpoints(1);
+        cpConfig.setExternalizedCheckpointCleanup(
+                CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
+        cpConfig.setCheckpointStorage("file:///opt/flink/checkpoints");
+
+        LOG.info("Execution environment configured with parallelism={}", PARALLELISM);
         
-        LOG.info("Execution environment configured");
-        
-        // 2. Configure Kafka source
+        // Configure Kafka source
         KafkaSource<PriceUpdate> kafkaSource = KafkaSource.<PriceUpdate>builder()
                 .setBootstrapServers(KAFKA_BOOTSTRAP_SERVERS)
                 .setTopics(INPUT_TOPIC)
@@ -111,7 +116,7 @@ public class CryptoPriceAggregator {
         
         LOG.info("Kafka source configured");
         
-        // 3. Configure watermark strategy
+        // Configure watermark strategy
         WatermarkStrategy<PriceUpdate> watermarkStrategy = WatermarkStrategy
                 .<PriceUpdate>forBoundedOutOfOrderness(Duration.ofSeconds(10))
                 .withTimestampAssigner(new SerializableTimestampAssigner<PriceUpdate>() {
@@ -129,7 +134,7 @@ public class CryptoPriceAggregator {
         
         LOG.info("Watermark strategy configured");
         
-        // 4. Create base price stream
+        // Create base price stream
         DataStream<PriceUpdate> priceStream = env
                 .fromSource(kafkaSource, watermarkStrategy, "Crypto Price Source")
                 .filter(priceUpdate -> priceUpdate != null && priceUpdate.isValid())
@@ -137,9 +142,7 @@ public class CryptoPriceAggregator {
         
         LOG.info("Base price stream created");
         
-        // 5. Multi-Window Processing
-        
-        // 5a. 1-Minute Windows with PostgreSQL Sink
+        // 1-Minute Windows with PostgreSQL + Redis sinks
         DataStream<OHLCCandle> ohlc1min = priceStream
                 .keyBy(PriceUpdate::getSymbol)
                 .window(TumblingEventTimeWindows.of(Time.minutes(1)))
@@ -166,7 +169,7 @@ public class CryptoPriceAggregator {
         
         LOG.info("1-minute windows with PostgreSQL and Redis sinks configured");
         
-        // 5b. 5-Minute Windows
+        // 5-Minute Windows
         DataStream<OHLCCandle> ohlc5min = priceStream
                 .keyBy(PriceUpdate::getSymbol)
                 .window(TumblingEventTimeWindows.of(Time.minutes(5)))
@@ -180,7 +183,7 @@ public class CryptoPriceAggregator {
         
         LOG.info("5-minute windows configured");
         
-        // 5c. 15-Minute Windows
+        // 15-Minute Windows
         DataStream<OHLCCandle> ohlc15min = priceStream
                 .keyBy(PriceUpdate::getSymbol)
                 .window(TumblingEventTimeWindows.of(Time.minutes(15)))
@@ -194,7 +197,7 @@ public class CryptoPriceAggregator {
         
         LOG.info("15-minute windows configured");
         
-        // 6. Anomaly Detection
+        // Anomaly Detection
         DataStream<PriceAlert> alerts = ohlc1min
                 .keyBy(OHLCCandle::getSymbol)
                 .process(new AnomalyDetector())
@@ -216,20 +219,11 @@ public class CryptoPriceAggregator {
         
         LOG.info("Anomaly detection with Kafka sink configured");
         
-        // 7. Execute the job
         env.execute("Crypto Aggregator with PostgreSQL Sink");
-        
-        LOG.info("Job execution completed");
     }
     
-    /**
-     * Create PostgreSQL JDBC Sink with batching and UPSERT
-     */
     private static SinkFunction<OhlcDatabaseRecord> createPostgresSink() {
-        
-        // UPSERT SQL: Insert or update on conflict
-        // Uses ON CONFLICT to handle duplicate windows gracefully
-        String upsertSql = 
+        String upsertSql =
             "INSERT INTO price_aggregates_1m " +
             "(crypto_id, window_start, window_end, open_price, high_price, low_price, " +
             " close_price, avg_price, volume_sum, trade_count) " +
@@ -246,8 +240,7 @@ public class CryptoPriceAggregator {
             "  trade_count = EXCLUDED.trade_count, " +
             "  created_at = CURRENT_TIMESTAMP";
         
-        // Statement builder: Maps OhlcDatabaseRecord to SQL parameters
-        JdbcStatementBuilder<OhlcDatabaseRecord> statementBuilder = 
+        JdbcStatementBuilder<OhlcDatabaseRecord> statementBuilder =
             new JdbcStatementBuilder<OhlcDatabaseRecord>() {
                 @Override
                 public void accept(PreparedStatement ps, OhlcDatabaseRecord record) throws SQLException {
@@ -264,14 +257,12 @@ public class CryptoPriceAggregator {
                 }
             };
         
-        // Execution options: Batching for efficiency
         JdbcExecutionOptions executionOptions = JdbcExecutionOptions.builder()
-                .withBatchSize(100)                    // Batch 100 records
-                .withBatchIntervalMs(5000)             // Or flush every 5 seconds
-                .withMaxRetries(3)                     // Retry 3 times on failure
+                .withBatchSize(100)
+                .withBatchIntervalMs(5000)
+                .withMaxRetries(3)
                 .build();
-        
-        // Connection options
+
         JdbcConnectionOptions connectionOptions = new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
                 .withUrl(POSTGRES_URL)
                 .withDriverName("org.postgresql.Driver")
