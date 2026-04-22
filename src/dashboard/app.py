@@ -1,15 +1,12 @@
 """
-Real-Time Cryptocurrency Market Analyzer Dashboard
-Phase 4 - Week 9 - Day 5-7 Enhanced
-
-Main Streamlit application with alerts, enhanced stats, and export functionality.
+Main Streamlit application: live price tracking, OHLC charts, and anomaly alerts.
 """
 
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 from datetime import datetime
 import logging
 import pandas as pd
-import time
 import sys
 from pathlib import Path
 
@@ -149,8 +146,6 @@ def main():
             - Professional candlestick charts
             - Technical indicators (MA)
             
-            **Author:** Zaid
-            **Purpose:** FAANG internship portfolio project
             """)
         
         st.markdown("---")
@@ -180,7 +175,7 @@ def main():
     health = api_client.get_health()
     if not health or health.get("status") != "healthy":
         st.error("⚠️ API is not responding. Please check if the backend is running.")
-        st.code("Start API: START_API.bat", language="bash")
+        st.code("bash scripts/start_pipeline.sh", language="bash")
         st.stop()
     
     # Fetch latest prices
@@ -189,10 +184,7 @@ def main():
     
     if not btc_data and not eth_data:
         st.error("❌ Unable to fetch price data. Please ensure the data pipeline is running.")
-        st.code("""
-Start Producer: START_PRODUCER.bat
-Wait 2 minutes for data to flow through pipeline
-        """, language="bash")
+        st.code("bash scripts/start_pipeline.sh", language="bash")
         st.stop()
     
     # Display price cards
@@ -338,15 +330,15 @@ Wait 2 minutes for data to flow through pipeline
     # Footer with last update time
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 2, 1])
-    
+
     with col2:
         current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
-        st.info(f"🔄 Last updated: {current_time} | Refreshing every {REFRESH_INTERVAL}s")
+        st.info(f"Last updated: {current_time} | Refreshing every {REFRESH_INTERVAL}s")
         st.caption("Data flows: CoinGecko → Kafka → Flink → Redis/PostgreSQL → FastAPI → Dashboard")
-    
-    # Auto-refresh
-    time.sleep(REFRESH_INTERVAL)
-    st.rerun()
+
+    # Non-blocking auto-refresh: st_autorefresh schedules a page reload via the browser
+    # without occupying a Streamlit thread for the duration of the sleep interval.
+    st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_refresh")
 
 
 if __name__ == "__main__":
