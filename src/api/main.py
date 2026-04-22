@@ -11,7 +11,7 @@ import sys
 
 from .config import settings
 from .database import lifespan
-from .middleware import PerformanceLoggingMiddleware, RequestValidationMiddleware
+from .middleware import PerformanceLoggingMiddleware, RequestTracingMiddleware
 from .endpoints import latest, historical, websocket, alerts
 
 logging.basicConfig(
@@ -40,7 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(PerformanceLoggingMiddleware)
-app.add_middleware(RequestValidationMiddleware)
+app.add_middleware(RequestTracingMiddleware)
 
 
 @app.get("/", tags=["Root"])
