@@ -92,12 +92,14 @@ public class CryptoPriceAggregator {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setParallelism(PARALLELISM);
 
-        // Checkpointing enables EXACTLY_ONCE delivery through the JDBC two-phase commit sink.
-        // Checkpoints are retained on cancellation so the job can resume without reprocessing.
-        env.enableCheckpointing(30_000, CheckpointingMode.EXACTLY_ONCE);
+        // Chandy-Lamport distributed snapshots via Flink's asynchronous barrier snapshotting.
+        // 60-second interval balances recovery time against checkpoint overhead on this topology.
+        // RETAIN_ON_CANCELLATION keeps the latest checkpoint so the job restarts from a known
+        // consistent state rather than replaying the full Kafka topic from the beginning.
+        env.enableCheckpointing(60_000, CheckpointingMode.EXACTLY_ONCE);
         CheckpointConfig cpConfig = env.getCheckpointConfig();
-        cpConfig.setCheckpointTimeout(60_000);
-        cpConfig.setMinPauseBetweenCheckpoints(10_000);
+        cpConfig.setCheckpointTimeout(120_000);
+        cpConfig.setMinPauseBetweenCheckpoints(30_000);
         cpConfig.setMaxConcurrentCheckpoints(1);
         cpConfig.setExternalizedCheckpointCleanup(
                 CheckpointConfig.ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION);
@@ -212,7 +214,9 @@ public class CryptoPriceAggregator {
                         .setTopic(ALERT_TOPIC)
                         .setValueSerializationSchema(new PriceAlertSerializer())
                         .build())
-                .setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+                // EXACTLY_ONCE ties Kafka producer transactions to Flink checkpoints,
+                // keeping the alert sink consistent with the job-level guarantee.
+                .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
                 .build();
         
         alerts.sinkTo(alertSink).name("Alert Kafka Sink");

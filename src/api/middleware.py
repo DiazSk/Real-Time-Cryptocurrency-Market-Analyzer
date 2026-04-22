@@ -31,10 +31,10 @@ class PerformanceLoggingMiddleware(BaseHTTPMiddleware):
             raise
 
 
-class RequestValidationMiddleware(BaseHTTPMiddleware):
-    """Attaches a unique request ID to every response for distributed tracing."""
+class RequestTracingMiddleware(BaseHTTPMiddleware):
+    """Attaches a UUID4 request ID to every response for distributed tracing."""
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        response.headers["X-Request-ID"] = str(uuid.uuid4())
+        response.headers["X-Request-ID"] = uuid.uuid4().hex
         return response
