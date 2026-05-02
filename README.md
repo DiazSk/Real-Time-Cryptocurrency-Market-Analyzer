@@ -10,7 +10,8 @@ Supports **BTC** and **ETH**. Runs entirely in Docker.
 
 ## Architecture
 
-```
+![Architecture diagram](docs/screenshots/architecture-diagram-high-level.png)
+<!-- ```
 CoinGecko API
      │
      ▼
@@ -38,7 +39,7 @@ FastAPI  (asyncpg + redis.asyncio, no blocking I/O)
      │
      ▼
 Streamlit Dashboard  (st_autorefresh every 2s)
-```
+``` -->
 
 ### Key implementation details
 
