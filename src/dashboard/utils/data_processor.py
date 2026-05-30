@@ -1,6 +1,5 @@
 """
 Data Processing Utilities
-Phase 4 - Week 9 - Day 1-2
 
 Helper functions for data transformation and formatting.
 """

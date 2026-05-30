@@ -1,6 +1,5 @@
 """
 Pydantic Models for API Request/Response Validation
-Phase 4 - Week 8
 """
 
 from pydantic import BaseModel, Field

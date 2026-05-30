@@ -16,8 +16,6 @@ import java.time.Instant;
  * Table: price_aggregates_1m
  * Columns: id (auto), crypto_id, window_start, window_end, open_price, high_price,
  *          low_price, close_price, avg_price, volume_sum, trade_count, created_at
- * 
- * @author Zaid
  */
 public class OhlcDatabaseRecord implements Serializable {
     

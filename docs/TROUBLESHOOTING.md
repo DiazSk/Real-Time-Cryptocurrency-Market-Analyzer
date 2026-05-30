@@ -2,7 +2,7 @@
 
 ## Issue Summary
 
-During Phase 2, Day 3-4 setup, the PostgreSQL container was crashing on startup. This document details the root causes and fixes applied.
+During initial setup, the PostgreSQL container was crashing on startup. This document details the root causes and fixes applied.
 
 ---
 
@@ -236,7 +236,6 @@ After these fixes, the following files were updated:
 - ✅ `docker-compose.yml` - Changed to TimescaleDB image, port 5433
 - ✅ `configs/init-db.sql` - Composite primary key, hypertable enabled
 - ✅ `DATABASE_CONNECTIONS.md` - Updated all port references to 5433
-- ✅ `PHASE2_DAY3-4.md` - Updated port and added TimescaleDB notes
 - ✅ `README.md` - Updated tech stack and ports table
 
 ---

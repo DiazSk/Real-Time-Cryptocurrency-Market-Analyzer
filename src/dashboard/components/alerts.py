@@ -1,6 +1,5 @@
 """
 Alerts Component
-Phase 4 - Week 9 - Day 5-7
 
 Displays recent price anomaly alerts.
 """

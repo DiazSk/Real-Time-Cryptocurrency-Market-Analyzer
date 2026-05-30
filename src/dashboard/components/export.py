@@ -1,6 +1,5 @@
 """
 Export Component
-Phase 4 - Week 9 - Day 5-7
 
 Provides data export functionality (CSV download).
 """

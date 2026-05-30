@@ -153,4 +153,4 @@ docker-compose up -d
 
 ---
 
-**Save this file for quick reference during Phase 2!**
+**Save this file for quick reference.**

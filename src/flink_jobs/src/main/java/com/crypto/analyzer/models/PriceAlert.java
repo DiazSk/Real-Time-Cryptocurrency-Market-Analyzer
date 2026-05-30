@@ -7,10 +7,8 @@ import java.time.Instant;
 
 /**
  * Price alert POJO for anomaly detection.
- * 
+ *
  * Written to Kafka topic 'crypto-alerts' when price spike >5% detected.
- * 
- * @author Zaid
  */
 public class PriceAlert implements Serializable {
     

@@ -181,7 +181,7 @@ docker exec jobmanager flink list
 
 ## 📦 Building Custom Flink Jobs
 
-### **Project Structure (for Week 4)**
+### **Project Structure**
 
 ```
 src/
@@ -340,4 +340,4 @@ curl http://localhost:8082/jobmanager/config
 
 ---
 
-**Keep this file handy when building Flink jobs in Week 4!** 🚀
+**Keep this file handy when building Flink jobs.** 🚀

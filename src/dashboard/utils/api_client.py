@@ -1,6 +1,5 @@
 """
 API Client for FastAPI Backend
-Phase 4 - Week 9 - Day 1-2
 
 Handles all communication with the FastAPI backend.
 """
