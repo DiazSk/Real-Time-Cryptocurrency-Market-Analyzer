@@ -8,8 +8,8 @@ Complete verification for Redis caching layer.
 
 ### **Step 1: Deploy**
 ```bash
-cd C:\Real-Time-Cryptocurrency-Market-Analyzer
-WEEK7_REDIS_DEPLOY.bat
+cd Real-Time-Cryptocurrency-Market-Analyzer
+docker compose up -d
 ```
 
 ### **Step 2: Start Producer**

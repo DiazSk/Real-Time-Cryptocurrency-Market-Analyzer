@@ -1,6 +1,5 @@
 """
 Dashboard Configuration Settings
-Phase 4 - Week 9 - Day 1-2
 """
 
 # API Configuration

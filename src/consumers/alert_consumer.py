@@ -3,9 +3,6 @@ Simple consumer for cryptocurrency price alerts from Flink anomaly detection.
 
 Subscribes to 'crypto-alerts' Kafka topic and displays formatted alerts.
 Run this alongside the Flink job to monitor anomalies in real-time.
-
-Author: Zaid
-Phase 3 - Week 6
 """
 
 import json

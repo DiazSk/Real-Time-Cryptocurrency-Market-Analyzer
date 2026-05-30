@@ -1,6 +1,5 @@
 """
 Redis Pub/Sub Subscriber for Real-Time Updates
-Phase 4 - Week 8 - Day 4-5
 
 Listens to Redis Pub/Sub channel and broadcasts updates to WebSocket clients.
 """

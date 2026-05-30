@@ -1,6 +1,5 @@
 """
 Candlestick Chart Component
-Phase 4 - Week 9 - Day 3-4
 
 Displays OHLC (Open-High-Low-Close) data as professional candlestick charts.
 """

@@ -16,20 +16,16 @@ import java.time.Duration;
 
 /**
  * Custom Redis sink for caching latest OHLC candles with Pub/Sub notification.
- * 
- * Phase 4 - Week 8 - Day 4-5: Enhanced with Redis Pub/Sub
- * 
+ *
  * Stores latest candle for each cryptocurrency with TTL of 5 minutes.
  * After writing to cache, publishes event to Redis Pub/Sub channel for real-time updates.
- * 
+ *
  * Key pattern: crypto:{SYMBOL}:latest
  * Value: JSON representation of OHLCCandle
  * TTL: 300 seconds (5 minutes)
  * Pub/Sub Channel: crypto:updates
- * 
+ *
  * Uses Jedis connection pool for thread-safety and efficiency.
- * 
- * @author Zaid
  */
 public class RedisSinkFunction extends RichSinkFunction<OHLCCandle> {
     

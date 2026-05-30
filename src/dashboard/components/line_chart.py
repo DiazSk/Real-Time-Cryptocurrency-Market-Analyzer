@@ -1,6 +1,5 @@
 """
 Line Chart Component
-Phase 4 - Week 9 - Day 1-2
 
 Displays 24-hour price trend as an interactive line chart.
 """

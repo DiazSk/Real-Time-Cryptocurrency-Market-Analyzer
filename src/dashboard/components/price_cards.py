@@ -1,6 +1,5 @@
 """
 Price Cards Component
-Phase 4 - Week 9 - Day 1-2
 
 Displays current cryptocurrency prices with change indicators.
 """

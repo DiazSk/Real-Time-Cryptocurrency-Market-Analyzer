@@ -1,6 +1,5 @@
 """
 Statistics Component
-Phase 4 - Week 9 - Day 1-2
 
 Displays statistical summaries for cryptocurrencies.
 """

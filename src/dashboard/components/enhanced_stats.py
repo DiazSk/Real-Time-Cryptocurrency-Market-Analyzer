@@ -1,6 +1,5 @@
 """
 Enhanced Statistics Component
-Phase 4 - Week 9 - Day 5-7
 
 Displays comprehensive 24h performance statistics.
 """
