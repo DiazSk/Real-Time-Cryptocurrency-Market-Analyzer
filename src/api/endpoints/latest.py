@@ -8,6 +8,7 @@ Per-request timing is handled by TimingMiddleware in middleware.py, not inline h
 from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from ..models import LatestPriceResponse, ErrorResponse
 from ..database import get_redis
+from ..config import settings
 import redis.asyncio as aioredis
 import json
 import logging
@@ -31,7 +32,7 @@ async def get_all_latest_prices(
     response: Response,
     redis_client: aioredis.Redis = Depends(get_redis)
 ):
-    symbols = ["BTC", "ETH"]
+    symbols = settings.SUPPORTED_SYMBOLS
     results = {}
     cache_hits = 0
 
@@ -96,10 +97,10 @@ async def get_latest_price(
 ) -> LatestPriceResponse:
     symbol = symbol.upper()
 
-    if symbol not in ["BTC", "ETH"]:
+    if symbol not in settings.SUPPORTED_SYMBOLS:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid symbol: {symbol}. Supported: BTC, ETH"
+            detail=f"Invalid symbol: {symbol}. Supported: {', '.join(settings.SUPPORTED_SYMBOLS)}"
         )
 
     redis_key = f"crypto:{symbol}:latest"

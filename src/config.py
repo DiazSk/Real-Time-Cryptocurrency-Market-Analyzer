@@ -1,7 +1,5 @@
 """
 Configuration file for Real-Time Cryptocurrency Market Analyzer
-Author: Zaid
-Phase 2, Week 4
 """
 
 import os
@@ -48,13 +46,17 @@ COINGECKO_API_KEY = os.getenv(
 )  # Optional, for higher rate limits
 
 # Cryptocurrency IDs (CoinGecko format)
+# Keep aligned with src/api/config.py::SUPPORTED_SYMBOLS so the producer,
+# API allowlist, and frontend picker stay in sync.
 CRYPTO_IDS = {
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    # Add more as needed:
-    # 'SOL': 'solana',
-    # 'ADA': 'cardano',
-    # 'DOT': 'polkadot',
+    "BTC":   "bitcoin",
+    "ETH":   "ethereum",
+    "SOL":   "solana",
+    "XRP":   "ripple",
+    "ADA":   "cardano",
+    "DOGE":  "dogecoin",
+    "AVAX":  "avalanche-2",
+    "MATIC": "matic-network",
 }
 
 # API Request Configuration
@@ -91,8 +93,11 @@ REDIS_KEY_STATS_24H = "crypto:{symbol}:stats:24h"
 # Application Configuration
 # ============================================
 # Producer Settings
-PRODUCER_FETCH_INTERVAL = 5  # seconds between price fetches
-PRODUCER_RUN_DURATION = 300  # seconds (5 minutes for testing), 0 for infinite
+# Both are env-driven so dev and prod don't share a single hard-coded value.
+# Default for RUN_DURATION is 0 (run forever); set PRODUCER_RUN_DURATION=300
+# in your shell or .env when you want the old "stop after 5 min" smoke-test behaviour.
+PRODUCER_FETCH_INTERVAL = int(os.getenv("PRODUCER_FETCH_INTERVAL", "5"))  # seconds between price fetches
+PRODUCER_RUN_DURATION = int(os.getenv("PRODUCER_RUN_DURATION", "0"))  # 0 = run until killed
 
 # Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
