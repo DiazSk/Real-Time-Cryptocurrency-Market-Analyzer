@@ -139,7 +139,7 @@ logs-kafka: ## View Kafka logs
 producer: ## Run the Python Data Producer
 	@echo "Starting Crypto Price Producer..."
 	$(PYTHON_CMD) scripts/wait_for_services.py kafka --retries 30 --interval 3
-	PYTHONPATH=src $(PYTHON) src/producers/crypto_price_producer.py
+	PYTHONPATH=. $(PYTHON) src/producers/crypto_price_producer.py
 
 api: ## Run the FastAPI Backend
 	@echo "Starting FastAPI Server..."

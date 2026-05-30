@@ -159,8 +159,8 @@ class CryptoPriceProducer:
             meta = future.get(timeout=10)
             self.message_count += 1
             logger.info(
-                "Produced: %s $%,.2f → partition %d offset %d",
-                message["symbol"], message["price_usd"], meta.partition, meta.offset,
+                "Produced: %s $%s → partition %d offset %d",
+                message["symbol"], f"{message['price_usd']:,.2f}", meta.partition, meta.offset,
             )
         except KafkaError as e:
             logger.error("Kafka error producing message: %s", e)
