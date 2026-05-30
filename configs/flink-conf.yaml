@@ -1,5 +1,4 @@
 # Flink Configuration for Real-Time Cryptocurrency Market Analyzer
-# Phase 2, Week 3, Day 5-7
 
 # ==============================================================================
 # JobManager Configuration
@@ -123,10 +122,10 @@ state.backend.rocksdb.block.cache-size: 256m
 # Auto offset reset: earliest/latest
 
 # ==============================================================================
-# Notes for Phase 3 (Week 5-7)
+# Notes
 # ==============================================================================
 
-# When you start building Flink jobs in Phase 3, you'll:
+# When we start building Flink jobs, we'll:
 # 1. Use this config for exactly-once semantics
 # 2. Process Kafka streams with event time semantics
 # 3. Create windowed aggregations (tumbling, sliding, session windows)
@@ -146,16 +145,12 @@ state.backend.rocksdb.block.cache-size: 256m
 
 blob.server.port: 6124
 query.server.port: 6125
-jobmanager.rpc.address: jobmanager
-jobmanager.memory.process.size: 2048m
-taskmanager.memory.process.size: 1728m
-taskmanager.numberOfTaskSlots: 2
-parallelism.default: 2
-
 
 jobmanager.rpc.address: jobmanager
 jobmanager.memory.process.size: 2048m
 taskmanager.memory.process.size: 1728m
-taskmanager.numberOfTaskSlots: 2
-parallelism.default: 2
-
+# Must be >= setParallelism(...) in CryptoPriceAggregator.java
+# (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
+# If you bump that constant, bump these too.
+taskmanager.numberOfTaskSlots: 4
+parallelism.default: 4
