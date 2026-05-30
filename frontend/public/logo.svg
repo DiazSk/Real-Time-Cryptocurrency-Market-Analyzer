@@ -1,0 +1,11 @@
+<svg width="148" height="32" viewBox="0 0 148 32" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Crypto Analyzer">
+  <g transform="translate(2 3)">
+    <line x1="4" y1="2" x2="4" y2="24" stroke="#2ebe7b" stroke-width="1.2"/>
+    <rect x="1.5" y="6" width="5" height="14" fill="#2ebe7b"/>
+    <line x1="12" y1="6" x2="12" y2="28" stroke="#ff5868" stroke-width="1.2"/>
+    <rect x="9.5" y="10" width="5" height="12" fill="#ff5868"/>
+    <line x1="20" y1="0" x2="20" y2="22" stroke="#2ebe7b" stroke-width="1.2"/>
+    <rect x="17.5" y="2" width="5" height="14" fill="#2ebe7b"/>
+  </g>
+  <text x="30" y="22" font-family="Inter, ui-sans-serif, system-ui, -apple-system, sans-serif" font-weight="700" font-size="16" fill="#e6e8ee" letter-spacing="-0.4">Crypto<tspan fill="#2ebe7b">Pulse</tspan></text>
+</svg>
