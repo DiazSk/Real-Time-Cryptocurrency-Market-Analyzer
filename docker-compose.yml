@@ -131,13 +131,25 @@ services:
       - "8082:8081"
     command: jobmanager
     environment:
-      - |
-        FLINK_PROPERTIES=
+      # JDBC sink + Kafka source in CryptoPriceAggregator.java read these.
+      # Internal Docker networking: postgres:5432 (not the host-exposed 5433).
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
         jobmanager.memory.process.size: 2048m
         taskmanager.memory.process.size: 1728m
-        taskmanager.numberOfTaskSlots: 2
-        parallelism.default: 2
+        # Must be >= setParallelism(...) in CryptoPriceAggregator.java
+        # (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
+        # If you bump that constant, bump these too.
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 4
     volumes:
       - flink_data:/opt/flink/data
     networks:
@@ -165,19 +177,46 @@ services:
         condition: service_healthy
     command: taskmanager
     environment:
-      - |
-        FLINK_PROPERTIES=
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
         jobmanager.memory.process.size: 2048m
         taskmanager.memory.process.size: 1728m
-        taskmanager.numberOfTaskSlots: 2
-        parallelism.default: 2
+        # Must be >= setParallelism(...) in CryptoPriceAggregator.java
+        # (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
+        # If you bump that constant, bump these too.
+        taskmanager.numberOfTaskSlots: 4
+        parallelism.default: 4
     volumes:
       - flink_data:/opt/flink/data
       - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
     networks:
       - crypto-network
     scale: 1
+
+  # Next.js dashboard. Calls FastAPI/WebSocket from the user's browser, so the
+  # URLs below must be reachable from the *browser* (not the container). Both
+  # the FastAPI and the producer currently run on the host, so localhost works.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+    networks:
+      - crypto-network
+    restart: unless-stopped
 
 networks:
   crypto-network:
