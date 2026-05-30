@@ -42,6 +42,10 @@ data/
 *.csv
 *.json
 !configs/*.json
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/tsconfig.json
+!frontend/components.json
 
 # Flink
 flink-savepoints/
@@ -62,3 +66,5 @@ release.properties
 continuous_*.py
 quick_*.py
 produce_test_*.py
+
+graphify-out/
