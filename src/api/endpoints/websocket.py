@@ -1,13 +1,22 @@
 """
 WebSocket Endpoint - Live Price Streaming with Redis Pub/Sub
-Phase 4 - Week 8 - Day 4-5
 
 Endpoint: WebSocket /ws/prices/{symbol}
 Streams: Real-time price updates via Redis Pub/Sub (event-driven, not polling)
+
+Message protocol (discriminated union on `type`):
+    - connection    {type, message, symbol, timestamp, mode}
+    - initial_data  {type, symbol, data: <candle>, timestamp}
+    - price_update  {type, symbol, data: <candle>, timestamp}  (pushed by Pub/Sub)
+    - keepalive     {type, timestamp, connections}             (every 30s idle)
+    - pong          {type, timestamp}                          (response to client ping)
+
+Client -> server: {type: "ping"} for liveness checks. All other client frames
+are tolerated but ignored.
 """
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from ..database import get_redis
+from ..config import settings
 from ..pubsub import pubsub_manager
 import json
 import logging
@@ -27,11 +36,9 @@ class ConnectionManager:
     """
     
     def __init__(self):
-        # Store connections by symbol filter
+        # Store connections by symbol filter; one set per supported symbol plus ALL
         self.connections: dict[str, Set[WebSocket]] = {
-            "ALL": set(),
-            "BTC": set(),
-            "ETH": set()
+            sym: set() for sym in (["ALL"] + list(settings.SUPPORTED_SYMBOLS))
         }
         self.total_connections = 0
     
@@ -194,7 +201,7 @@ async def websocket_prices(websocket: WebSocket, symbol: str):
     symbol = symbol.upper()
     
     # Validate symbol
-    if symbol not in ["BTC", "ETH", "ALL"]:
+    if symbol != "ALL" and symbol not in settings.SUPPORTED_SYMBOLS:
         await websocket.close(code=1008, reason=f"Invalid symbol: {symbol}")
         return
     
@@ -212,17 +219,20 @@ async def websocket_prices(websocket: WebSocket, symbol: str):
         }
         await websocket.send_json(welcome_msg)
         
-        # Send initial data from Redis cache
-        redis_client = get_redis()
-        symbols = ["BTC", "ETH"] if symbol == "ALL" else [symbol]
-        
+        # Send initial data from Redis cache. WS handlers don't have a Request,
+        # so reach into app.state directly (get_redis() is a FastAPI dependency
+        # that injects request, which isn't available here). The shared client
+        # is redis.asyncio, so .get() must be awaited.
+        redis_client = websocket.app.state.redis
+        symbols = list(settings.SUPPORTED_SYMBOLS) if symbol == "ALL" else [symbol]
+
         for sym in symbols:
             redis_key = f"crypto:{sym}:latest"
-            cached_data = redis_client.get(redis_key)
-            
+            cached_data = await redis_client.get(redis_key)
+
             if cached_data:
                 data = json.loads(cached_data)
-                
+
                 initial_msg = {
                     "type": "initial_data",
                     "symbol": sym,

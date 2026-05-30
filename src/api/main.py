@@ -12,7 +12,7 @@ import sys
 from .config import settings
 from .database import lifespan
 from .middleware import PerformanceLoggingMiddleware, RequestTracingMiddleware
-from .endpoints import latest, historical, websocket, alerts
+from .endpoints import latest, historical, websocket, alerts, symbols
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,6 +35,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,6 +98,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 app.include_router(latest.router, prefix="/api/v1")
 app.include_router(historical.router, prefix="/api/v1")
 app.include_router(alerts.router, prefix="/api/v1")
+app.include_router(symbols.router, prefix="/api/v1")
 app.include_router(websocket.router)
 
 

@@ -1,15 +1,15 @@
 """
 Alerts Endpoint - Fetches Recent Price Anomalies
-Phase 4 - Week 9 - Day 5-7
 
 Endpoint: GET /api/v1/alerts/{symbol}
-Returns: Recent price anomaly alerts from Kafka topic
+Returns: Recent price anomaly alerts from PostgreSQL
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
-from ..database import get_postgres_connection
-from typing import List, Optional
+from ..database import get_db
+from ..config import settings
 from datetime import datetime, timedelta
+import asyncpg
 import logging
 
 logger = logging.getLogger(__name__)
@@ -20,17 +20,17 @@ router = APIRouter(
 )
 
 
-class AlertResponse:
-    """Alert response model"""
-    def __init__(self, data: dict):
-        self.symbol = data[0]
-        self.alert_type = data[1]
-        self.price_change_pct = float(data[2])
-        self.old_price = float(data[3])
-        self.new_price = float(data[4])
-        self.window_start = data[5]
-        self.window_end = data[6]
-        self.created_at = data[7]
+def _serialize_alert(row) -> dict:
+    return {
+        "symbol": row["symbol"],
+        "alert_type": row["alert_type"],
+        "price_change_pct": float(row["price_change_pct"]),
+        "old_price": float(row["old_price"]),
+        "new_price": float(row["new_price"]),
+        "window_start": row["window_start"].isoformat() if row["window_start"] else None,
+        "window_end": row["window_end"].isoformat() if row["window_end"] else None,
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+    }
 
 
 @router.get(
@@ -43,30 +43,15 @@ async def get_alerts(
     symbol: str,
     limit: int = Query(10, ge=1, le=100, description="Maximum alerts to return"),
     hours: int = Query(24, ge=1, le=168, description="Look back period in hours"),
-    conn=Depends(get_postgres_connection)
+    conn: asyncpg.Connection = Depends(get_db)
 ):
-    """
-    Get recent price anomaly alerts
-    
-    Args:
-        symbol: Cryptocurrency symbol (BTC, ETH, or 'all' for both)
-        limit: Maximum number of alerts
-        hours: Hours to look back (default 24, max 168=1 week)
-        conn: PostgreSQL connection
-    
-    Returns:
-        List of recent alerts
-    """
-    
     symbol = symbol.upper()
-    
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+
     try:
-        cursor = conn.cursor()
-        
-        # Build query based on symbol
         if symbol == "ALL":
             sql = """
-                SELECT 
+                SELECT
                     c.symbol,
                     pa.alert_type,
                     pa.price_change_pct,
@@ -77,24 +62,20 @@ async def get_alerts(
                     pa.created_at
                 FROM price_alerts pa
                 JOIN cryptocurrencies c ON pa.crypto_id = c.id
-                WHERE pa.created_at >= NOW() - INTERVAL '%s hours'
+                WHERE pa.created_at >= $1
                 ORDER BY pa.created_at DESC
-                LIMIT %s
+                LIMIT $2
             """
-            cursor.execute(sql, (hours, limit))
+            rows = await conn.fetch(sql, cutoff, limit)
         else:
-            # Validate symbol
-            if symbol not in ["BTC", "ETH"]:
+            if symbol not in settings.SUPPORTED_SYMBOLS:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid symbol: {symbol}. Supported: BTC, ETH, ALL"
+                    detail=f"Invalid symbol: {symbol}. Supported: {', '.join(settings.SUPPORTED_SYMBOLS)}, ALL"
                 )
-            
-            crypto_id_map = {"BTC": 1, "ETH": 2}
-            crypto_id = crypto_id_map[symbol]
-            
+
             sql = """
-                SELECT 
+                SELECT
                     c.symbol,
                     pa.alert_type,
                     pa.price_change_pct,
@@ -105,47 +86,31 @@ async def get_alerts(
                     pa.created_at
                 FROM price_alerts pa
                 JOIN cryptocurrencies c ON pa.crypto_id = c.id
-                WHERE pa.crypto_id = %s
-                    AND pa.created_at >= NOW() - INTERVAL '%s hours'
+                WHERE c.symbol = $1
+                    AND pa.created_at >= $2
                 ORDER BY pa.created_at DESC
-                LIMIT %s
+                LIMIT $3
             """
-            cursor.execute(sql, (crypto_id, hours, limit))
-        
-        rows = cursor.fetchall()
-        cursor.close()
-        
-        # Convert to response format
-        alerts = []
-        for row in rows:
-            alerts.append({
-                "symbol": row[0],
-                "alert_type": row[1],
-                "price_change_pct": float(row[2]),
-                "old_price": float(row[3]),
-                "new_price": float(row[4]),
-                "window_start": row[5].isoformat() if row[5] else None,
-                "window_end": row[6].isoformat() if row[6] else None,
-                "created_at": row[7].isoformat() if row[7] else None
-            })
-        
-        # Add metadata headers
+            rows = await conn.fetch(sql, symbol, cutoff, limit)
+
+        alerts = [_serialize_alert(row) for row in rows]
+
         response.headers["X-Total-Alerts"] = str(len(alerts))
         response.headers["X-Lookback-Hours"] = str(hours)
-        
-        logger.info(f"✅ Retrieved {len(alerts)} alerts for {symbol}")
-        
+
+        logger.info("Retrieved %d alerts for %s", len(alerts), symbol)
+
         return {
             "symbol": symbol,
             "alert_count": len(alerts),
             "lookback_hours": hours,
-            "alerts": alerts
+            "alerts": alerts,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching alerts: {e}")
+        logger.error("Error fetching alerts: %s", e)
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch alerts: {str(e)}"
@@ -158,9 +123,9 @@ async def get_alerts(
     description="Fetches recent alerts for all cryptocurrencies"
 )
 async def get_all_alerts(
+    response: Response,
     limit: int = Query(20, ge=1, le=100),
     hours: int = Query(24, ge=1, le=168),
-    conn=Depends(get_postgres_connection)
+    conn: asyncpg.Connection = Depends(get_db)
 ):
-    """Get all recent alerts (same as /alerts/all)"""
-    return await get_alerts(Response(), "ALL", limit, hours, conn)
+    return await get_alerts(response, "ALL", limit, hours, conn)

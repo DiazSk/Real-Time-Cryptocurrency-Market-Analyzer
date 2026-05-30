@@ -8,6 +8,7 @@ Per-request timing is handled by TimingMiddleware, not inline here.
 from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from ..models import HistoricalPriceResponse, ErrorResponse
 from ..database import get_db
+from ..config import settings
 from typing import List, Optional
 from datetime import datetime, timedelta
 import asyncpg
@@ -20,8 +21,16 @@ router = APIRouter(
     tags=["Historical Data"]
 )
 
-# Maps symbol strings to the primary-key values in the cryptocurrencies table.
-CRYPTO_ID_MAP = {"BTC": 1, "ETH": 2}
+
+def _validate_symbol(symbol: str) -> str:
+    """Normalise + validate against the supported-symbol allowlist."""
+    symbol = symbol.upper()
+    if symbol not in settings.SUPPORTED_SYMBOLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid symbol: {symbol}. Supported: {', '.join(settings.SUPPORTED_SYMBOLS)}"
+        )
+    return symbol
 
 
 @router.get(
@@ -51,15 +60,7 @@ async def get_historical_prices(
     order_by: str = Query("desc", regex="^(asc|desc)$", description="Sort order"),
     conn: asyncpg.Connection = Depends(get_db)
 ) -> List[HistoricalPriceResponse]:
-    symbol = symbol.upper()
-
-    if symbol not in CRYPTO_ID_MAP:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid symbol: {symbol}. Supported: BTC, ETH"
-        )
-
-    crypto_id = CRYPTO_ID_MAP[symbol]
+    symbol = _validate_symbol(symbol)
 
     if end_time is None:
         end_time = datetime.utcnow()
@@ -92,22 +93,23 @@ async def get_historical_prices(
                 p.trade_count
             FROM price_aggregates_1m p
             JOIN cryptocurrencies c ON p.crypto_id = c.id
-            WHERE p.crypto_id = $1
+            WHERE c.symbol = $1
                 AND p.window_start >= $2
                 AND p.window_start <= $3
             ORDER BY p.window_start {order_clause}
             LIMIT $4 OFFSET $5
         """
-        rows = await conn.fetch(sql, crypto_id, start_time, end_time, limit, offset)
+        rows = await conn.fetch(sql, symbol, start_time, end_time, limit, offset)
 
         count_sql = """
             SELECT COUNT(*)
-            FROM price_aggregates_1m
-            WHERE crypto_id = $1
-                AND window_start >= $2
-                AND window_start <= $3
+            FROM price_aggregates_1m p
+            JOIN cryptocurrencies c ON p.crypto_id = c.id
+            WHERE c.symbol = $1
+                AND p.window_start >= $2
+                AND p.window_start <= $3
         """
-        total_count = await conn.fetchval(count_sql, crypto_id, start_time, end_time)
+        total_count = await conn.fetchval(count_sql, symbol, start_time, end_time)
 
         response.headers["X-Total-Count"] = str(total_count)
         response.headers["X-Returned-Count"] = str(len(rows))
@@ -158,15 +160,7 @@ async def get_price_stats(
     end_time: Optional[datetime] = Query(None),
     conn: asyncpg.Connection = Depends(get_db)
 ):
-    symbol = symbol.upper()
-
-    if symbol not in CRYPTO_ID_MAP:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid symbol: {symbol}. Supported: BTC, ETH"
-        )
-
-    crypto_id = CRYPTO_ID_MAP[symbol]
+    symbol = _validate_symbol(symbol)
 
     if end_time is None:
         end_time = datetime.utcnow()
@@ -176,17 +170,18 @@ async def get_price_stats(
     try:
         sql = """
             SELECT
-                MIN(low_price)  AS lowest,
-                MAX(high_price) AS highest,
-                AVG(avg_price)  AS average,
-                SUM(volume_sum) AS total_volume,
-                COUNT(*)        AS candle_count
-            FROM price_aggregates_1m
-            WHERE crypto_id = $1
-                AND window_start >= $2
-                AND window_start <= $3
+                MIN(p.low_price)  AS lowest,
+                MAX(p.high_price) AS highest,
+                AVG(p.avg_price)  AS average,
+                SUM(p.volume_sum) AS total_volume,
+                COUNT(*)          AS candle_count
+            FROM price_aggregates_1m p
+            JOIN cryptocurrencies c ON p.crypto_id = c.id
+            WHERE c.symbol = $1
+                AND p.window_start >= $2
+                AND p.window_start <= $3
         """
-        row = await conn.fetchrow(sql, crypto_id, start_time, end_time)
+        row = await conn.fetchrow(sql, symbol, start_time, end_time)
 
         if not row or row["lowest"] is None:
             raise HTTPException(status_code=404, detail=f"No data found for {symbol}")
@@ -223,15 +218,7 @@ async def get_latest_historical(
     symbol: str,
     conn: asyncpg.Connection = Depends(get_db)
 ) -> HistoricalPriceResponse:
-    symbol = symbol.upper()
-
-    if symbol not in CRYPTO_ID_MAP:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid symbol: {symbol}. Supported: BTC, ETH"
-        )
-
-    crypto_id = CRYPTO_ID_MAP[symbol]
+    symbol = _validate_symbol(symbol)
 
     try:
         sql = """
@@ -248,11 +235,11 @@ async def get_latest_historical(
                 p.trade_count
             FROM price_aggregates_1m p
             JOIN cryptocurrencies c ON p.crypto_id = c.id
-            WHERE p.crypto_id = $1
+            WHERE c.symbol = $1
             ORDER BY p.window_start DESC
             LIMIT 1
         """
-        row = await conn.fetchrow(sql, crypto_id)
+        row = await conn.fetchrow(sql, symbol)
 
         if not row:
             raise HTTPException(status_code=404, detail=f"No data found for {symbol}")

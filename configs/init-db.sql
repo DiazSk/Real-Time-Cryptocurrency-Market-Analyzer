@@ -18,8 +18,14 @@ CREATE TABLE IF NOT EXISTS cryptocurrencies (
 );
 
 INSERT INTO cryptocurrencies (symbol, name, coingecko_id) VALUES
-    ('BTC', 'Bitcoin', 'bitcoin'),
-    ('ETH', 'Ethereum', 'ethereum')
+    ('BTC',   'Bitcoin',    'bitcoin'),
+    ('ETH',   'Ethereum',   'ethereum'),
+    ('SOL',   'Solana',     'solana'),
+    ('XRP',   'XRP',        'ripple'),
+    ('ADA',   'Cardano',    'cardano'),
+    ('DOGE',  'Dogecoin',   'dogecoin'),
+    ('AVAX',  'Avalanche',  'avalanche-2'),
+    ('MATIC', 'Polygon',    'matic-network')
 ON CONFLICT (symbol) DO NOTHING;
 
 -- ============================================
