@@ -154,3 +154,30 @@ taskmanager.memory.process.size: 1728m
 # If you bump that constant, bump these too.
 taskmanager.numberOfTaskSlots: 4
 parallelism.default: 4
+jobmanager.rpc.address: jobmanager
+jobmanager.memory.process.size: 2048m
+taskmanager.memory.process.size: 1728m
+# Must be >= setParallelism(...) in CryptoPriceAggregator.java
+# (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
+# If you bump that constant, bump these too.
+taskmanager.numberOfTaskSlots: 4
+parallelism.default: 4
+
+jobmanager.rpc.address: jobmanager
+jobmanager.memory.process.size: 2048m
+taskmanager.memory.process.size: 1728m
+# Must be >= setParallelism(...) in CryptoPriceAggregator.java
+# (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
+# If you bump that constant, bump these too.
+taskmanager.numberOfTaskSlots: 4
+parallelism.default: 4
+
+jobmanager.rpc.address: jobmanager
+jobmanager.memory.process.size: 2048m
+taskmanager.memory.process.size: 1728m
+# Must be >= setParallelism(...) in CryptoPriceAggregator.java
+# (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
+# If you bump that constant, bump these too.
+taskmanager.numberOfTaskSlots: 4
+parallelism.default: 4
+
