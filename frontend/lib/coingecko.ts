@@ -42,6 +42,13 @@ async function cgFetch<T>(path: string, opts: FetchOpts): Promise<T> {
     next: { revalidate: opts.revalidate },
   });
 
+  if (res.status === 429) {
+    const retryAfter = Number(res.headers.get("Retry-After") ?? 60);
+    const err = new Error(`CoinGecko rate limit hit. Retry after ${retryAfter}s.`);
+    err.name = "RateLimitError";
+    throw err;
+  }
+
   if (!res.ok) {
     // Don't include the URL in the message because it may contain the api key in headers we control;
     // still keep the path so logs are actionable.
@@ -193,7 +200,7 @@ export interface CoinDetail {
 
 export function getCoin(id: string): Promise<CoinDetail> {
   return cgFetch<CoinDetail>(`/coins/${id}`, {
-    revalidate: 60,
+    revalidate: 120,
     params: {
       localization: false,
       tickers: true,
