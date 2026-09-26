@@ -16,7 +16,7 @@ are tolerated but ignored.
 """
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from ..config import settings
+from ..registry import symbols_of
 from ..pubsub import pubsub_manager
 import json
 import logging
@@ -36,10 +36,8 @@ class ConnectionManager:
     """
     
     def __init__(self):
-        # Store connections by symbol filter; one set per supported symbol plus ALL
-        self.connections: dict[str, Set[WebSocket]] = {
-            sym: set() for sym in (["ALL"] + list(settings.SUPPORTED_SYMBOLS))
-        }
+        # Store connections by symbol filter; per-symbol sets are added lazily in connect()
+        self.connections: dict[str, Set[WebSocket]] = {"ALL": set()}
         self.total_connections = 0
     
     async def connect(self, websocket: WebSocket, symbol: str = "ALL"):
@@ -201,7 +199,7 @@ async def websocket_prices(websocket: WebSocket, symbol: str):
     symbol = symbol.upper()
     
     # Validate symbol
-    if symbol != "ALL" and symbol not in settings.SUPPORTED_SYMBOLS:
+    if symbol != "ALL" and symbol not in symbols_of(websocket):
         await websocket.close(code=1008, reason=f"Invalid symbol: {symbol}")
         return
     
@@ -224,7 +222,7 @@ async def websocket_prices(websocket: WebSocket, symbol: str):
         # that injects request, which isn't available here). The shared client
         # is redis.asyncio, so .get() must be awaited.
         redis_client = websocket.app.state.redis
-        symbols = list(settings.SUPPORTED_SYMBOLS) if symbol == "ALL" else [symbol]
+        symbols = list(symbols_of(websocket)) if symbol == "ALL" else [symbol]
 
         for sym in symbols:
             redis_key = f"crypto:{sym}:latest"

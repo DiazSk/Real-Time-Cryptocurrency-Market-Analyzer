@@ -5,10 +5,10 @@ Uses asyncpg natively so queries do not block the ASGI event loop.
 Per-request timing is handled by TimingMiddleware, not inline here.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Response
+from fastapi import APIRouter, HTTPException, Depends, Query, Response, Request
 from ..models import HistoricalPriceResponse, ErrorResponse
 from ..database import get_db
-from ..config import settings
+from ..registry import require_symbol, symbols_of
 from typing import List, Optional
 from datetime import datetime, timedelta
 import asyncpg
@@ -20,17 +20,6 @@ router = APIRouter(
     prefix="/historical",
     tags=["Historical Data"]
 )
-
-
-def _validate_symbol(symbol: str) -> str:
-    """Normalise + validate against the supported-symbol allowlist."""
-    symbol = symbol.upper()
-    if symbol not in settings.SUPPORTED_SYMBOLS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid symbol: {symbol}. Supported: {', '.join(settings.SUPPORTED_SYMBOLS)}"
-        )
-    return symbol
 
 
 @router.get(
@@ -45,6 +34,7 @@ def _validate_symbol(symbol: str) -> str:
                 "Supports date range filtering, ordering, and pagination."
 )
 async def get_historical_prices(
+    request: Request,
     response: Response,
     symbol: str,
     start_time: Optional[datetime] = Query(
@@ -60,7 +50,7 @@ async def get_historical_prices(
     order_by: str = Query("desc", regex="^(asc|desc)$", description="Sort order"),
     conn: asyncpg.Connection = Depends(get_db)
 ) -> List[HistoricalPriceResponse]:
-    symbol = _validate_symbol(symbol)
+    symbol = require_symbol(symbols_of(request), symbol)
 
     if end_time is None:
         end_time = datetime.utcnow()
@@ -155,12 +145,13 @@ async def get_historical_prices(
     description="Returns min, max, avg prices for a given time range"
 )
 async def get_price_stats(
+    request: Request,
     symbol: str,
     start_time: Optional[datetime] = Query(None),
     end_time: Optional[datetime] = Query(None),
     conn: asyncpg.Connection = Depends(get_db)
 ):
-    symbol = _validate_symbol(symbol)
+    symbol = require_symbol(symbols_of(request), symbol)
 
     if end_time is None:
         end_time = datetime.utcnow()
@@ -215,10 +206,11 @@ async def get_price_stats(
     description="Fetches the most recent 1-minute candle from PostgreSQL"
 )
 async def get_latest_historical(
+    request: Request,
     symbol: str,
     conn: asyncpg.Connection = Depends(get_db)
 ) -> HistoricalPriceResponse:
-    symbol = _validate_symbol(symbol)
+    symbol = require_symbol(symbols_of(request), symbol)
 
     try:
         sql = """

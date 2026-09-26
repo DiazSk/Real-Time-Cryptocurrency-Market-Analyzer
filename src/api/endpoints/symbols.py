@@ -5,9 +5,9 @@ Used by the frontend to populate the symbol picker and a "trending tokens"
 panel without each component needing to know the full supported-symbol list.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from ..config import settings
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from ..database import get_db
+from ..registry import symbols_of
 import asyncpg
 import logging
 
@@ -21,17 +21,14 @@ router = APIRouter(tags=["Symbols"])
     summary="List supported symbols",
     description="Returns the configured supported-symbol allowlist with display metadata."
 )
-async def list_symbols():
+async def list_symbols(request: Request):
+    symbols = symbols_of(request)
     return {
         "symbols": [
-            {
-                "symbol": sym,
-                "name": settings.SYMBOL_METADATA.get(sym, {}).get("name", sym),
-                "slug": settings.SYMBOL_METADATA.get(sym, {}).get("slug", sym.lower()),
-            }
-            for sym in settings.SUPPORTED_SYMBOLS
+            {"symbol": s.symbol, "name": s.name, "slug": s.coingecko_id}
+            for s in symbols.values()
         ],
-        "count": len(settings.SUPPORTED_SYMBOLS),
+        "count": len(symbols),
     }
 
 
@@ -41,6 +38,7 @@ async def list_symbols():
     description="Returns supported symbols sorted by 24h price change, derived from v_latest_prices."
 )
 async def trending_symbols(
+    request: Request,
     limit: int = Query(10, ge=1, le=50, description="Max rows to return (1-50)"),
     direction: str = Query("abs", regex="^(abs|gainers|losers)$",
                            description="Sort: abs (biggest movers), gainers, or losers"),
@@ -70,7 +68,7 @@ async def trending_symbols(
     """
 
     try:
-        rows = await conn.fetch(sql, list(settings.SUPPORTED_SYMBOLS), limit)
+        rows = await conn.fetch(sql, list(symbols_of(request)), limit)
     except Exception as exc:
         logger.error("Trending query failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to compute trending symbols")

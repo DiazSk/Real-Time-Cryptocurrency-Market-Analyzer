@@ -5,9 +5,9 @@ Endpoint: GET /api/v1/alerts/{symbol}
 Returns: Recent price anomaly alerts from PostgreSQL
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Response
+from fastapi import APIRouter, HTTPException, Depends, Query, Response, Request
 from ..database import get_db
-from ..config import settings
+from ..registry import require_symbol, symbols_of
 from datetime import datetime, timedelta
 import asyncpg
 import logging
@@ -39,13 +39,14 @@ def _serialize_alert(row) -> dict:
     description="Fetches recent anomaly detection alerts for a cryptocurrency"
 )
 async def get_alerts(
+    request: Request,
     response: Response,
     symbol: str,
     limit: int = Query(10, ge=1, le=100, description="Maximum alerts to return"),
     hours: int = Query(24, ge=1, le=168, description="Look back period in hours"),
     conn: asyncpg.Connection = Depends(get_db)
 ):
-    symbol = symbol.upper()
+    symbol = require_symbol(symbols_of(request), symbol, allow_all=True)
     cutoff = datetime.utcnow() - timedelta(hours=hours)
 
     try:
@@ -68,12 +69,6 @@ async def get_alerts(
             """
             rows = await conn.fetch(sql, cutoff, limit)
         else:
-            if symbol not in settings.SUPPORTED_SYMBOLS:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid symbol: {symbol}. Supported: {', '.join(settings.SUPPORTED_SYMBOLS)}, ALL"
-                )
-
             sql = """
                 SELECT
                     c.symbol,
@@ -123,9 +118,10 @@ async def get_alerts(
     description="Fetches recent alerts for all cryptocurrencies"
 )
 async def get_all_alerts(
+    request: Request,
     response: Response,
     limit: int = Query(20, ge=1, le=100),
     hours: int = Query(24, ge=1, le=168),
     conn: asyncpg.Connection = Depends(get_db)
 ):
-    return await get_alerts(response, "ALL", limit, hours, conn)
+    return await get_alerts(request, response, "ALL", limit, hours, conn)
