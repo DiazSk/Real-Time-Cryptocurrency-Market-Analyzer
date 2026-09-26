@@ -12,7 +12,7 @@ import sys
 from .config import settings
 from .database import lifespan
 from .middleware import PerformanceLoggingMiddleware, RequestTracingMiddleware
-from .endpoints import latest, historical, websocket, alerts, symbols
+from .endpoints import latest, historical, websocket, alerts, symbols, trades
 
 logging.basicConfig(
     level=logging.INFO,
@@ -99,6 +99,7 @@ app.include_router(latest.router, prefix="/api/v1")
 app.include_router(historical.router, prefix="/api/v1")
 app.include_router(alerts.router, prefix="/api/v1")
 app.include_router(symbols.router, prefix="/api/v1")
+app.include_router(trades.router, prefix="/api/v1")
 app.include_router(websocket.router)
 
 
