@@ -16,39 +16,22 @@ class HealthCheck(BaseModel):
 
 
 class LatestPriceResponse(BaseModel):
-    """
-    Response model for /latest/{symbol} endpoint
-    """
-    symbol: str = Field(..., description="Cryptocurrency symbol (BTC, ETH)")
-    window_start: datetime = Field(..., description="Window start time")
-    window_end: datetime = Field(..., description="Window end time")
-    open: Decimal = Field(..., description="Opening price")
-    high: Decimal = Field(..., description="Highest price")
-    low: Decimal = Field(..., description="Lowest price")
-    close: Decimal = Field(..., description="Closing price")
-    volume_sum: Decimal = Field(..., description="Total volume")
-    event_count: int = Field(..., description="Number of price updates")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "symbol": "BTC",
-                "window_start": "2025-11-16T05:30:00Z",
-                "window_end": "2025-11-16T05:31:00Z",
-                "open": 95750.00,
-                "high": 95800.00,
-                "low": 95700.00,
-                "close": 95780.00,
-                "volume_sum": 78701577213.28,
-                "event_count": 12
-            }
-        }
+    """Most recent completed 1-minute candle. X-Data-Source says whether Redis or PostgreSQL served it."""
+    symbol: str
+    window_start: datetime
+    window_end: datetime
+    open: Decimal
+    high: Decimal
+    low: Decimal
+    close: Decimal
+    vwap: Decimal = Field(..., description="Volume-weighted average price")
+    volume: Decimal = Field(..., description="Base-asset units traded")
+    quote_volume: Decimal = Field(..., description="USD traded (sum of price * size)")
+    trade_count: int = Field(..., description="Number of trades in the window")
 
 
 class HistoricalPriceResponse(BaseModel):
-    """
-    Response model for /historical/{symbol} endpoint
-    """
+    """One persisted 1-minute candle from price_aggregates_1m."""
     symbol: str
     window_start: datetime
     window_end: datetime
@@ -56,25 +39,10 @@ class HistoricalPriceResponse(BaseModel):
     high_price: Decimal
     low_price: Decimal
     close_price: Decimal
-    avg_price: Decimal
-    volume_sum: Decimal
+    vwap: Decimal
+    volume: Decimal
+    quote_volume: Decimal
     trade_count: int
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "symbol": "BTC",
-                "window_start": "2025-11-16T05:30:00Z",
-                "window_end": "2025-11-16T05:31:00Z",
-                "open_price": 95750.00,
-                "high_price": 95800.00,
-                "low_price": 95700.00,
-                "close_price": 95780.00,
-                "avg_price": 95757.50,
-                "volume_sum": 78701577213.28,
-                "trade_count": 12
-            }
-        }
 
 
 class HistoricalDataQuery(BaseModel):

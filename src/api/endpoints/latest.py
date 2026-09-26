@@ -1,158 +1,133 @@
 """
-Latest price endpoints backed by Redis cache.
+Latest-candle endpoints.
 
-All Redis I/O uses the async client so the ASGI event loop is never blocked.
-Per-request timing is handled by TimingMiddleware in middleware.py, not inline here.
+Redis holds the newest 1-minute candle per symbol (written by Flink on window close).
+On a miss, a corrupt entry, or a Redis outage, the newest row in TimescaleDB is served
+instead, so Redis is a cache in front of the database rather than the only source.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Response, Request
-from ..models import LatestPriceResponse, ErrorResponse
-from ..database import get_redis
-from ..config import settings
-import redis.asyncio as aioredis
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from redis.exceptions import RedisError
+
+from ..database import get_pool, get_redis
+from ..models import ErrorResponse, LatestPriceResponse
+from ..registry import require_symbol, symbols_of
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(
-    prefix="/latest",
-    tags=["Latest Prices"]
-)
+router = APIRouter(prefix="/latest", tags=["Latest Prices"])
+
+# One index-backed LIMIT 1 per symbol (PK is crypto_id, window_start).
+LATEST_SQL = """
+    SELECT c.symbol, p.window_start, p.window_end, p.open_price, p.high_price, p.low_price,
+           p.close_price, p.vwap, p.volume, p.quote_volume, p.trade_count
+    FROM cryptocurrencies c
+    CROSS JOIN LATERAL (
+        SELECT * FROM price_aggregates_1m
+        WHERE crypto_id = c.id
+        ORDER BY window_start DESC
+        LIMIT 1
+    ) p
+    WHERE c.symbol = ANY($1::text[])
+"""
 
 
-@router.get(
-    "/all",
-    summary="Get all latest prices",
-    description="Fetches latest prices for all supported cryptocurrencies"
-)
+def _from_cache(raw: str) -> LatestPriceResponse:
+    """Parse the Flink Candle JSON (camelCase keys, window times in epoch seconds).
+    parse_float=Decimal keeps Java BigDecimal prices exact."""
+    d = json.loads(raw, parse_float=Decimal)
+    return LatestPriceResponse(
+        symbol=d["symbol"],
+        window_start=datetime.fromtimestamp(float(d["windowStart"]), tz=timezone.utc),
+        window_end=datetime.fromtimestamp(float(d["windowEnd"]), tz=timezone.utc),
+        open=d["open"], high=d["high"], low=d["low"], close=d["close"],
+        vwap=d["vwap"], volume=d["volume"], quote_volume=d["quoteVolume"], trade_count=d["tradeCount"],
+    )
+
+
+def _from_row(row) -> LatestPriceResponse:
+    return LatestPriceResponse(
+        symbol=row["symbol"], window_start=row["window_start"], window_end=row["window_end"],
+        open=row["open_price"], high=row["high_price"], low=row["low_price"], close=row["close_price"],
+        vwap=row["vwap"], volume=row["volume"], quote_volume=row["quote_volume"], trade_count=row["trade_count"],
+    )
+
+
+async def _latest(symbols: list[str], redis_client, pool) -> tuple[dict, dict]:
+    """Newest candle per symbol: Redis first, one PostgreSQL query for all misses.
+    Returns (candles by symbol, source by symbol)."""
+    candles, sources = {}, {}
+    for sym in symbols:
+        try:
+            raw = await redis_client.get(f"crypto:{sym}:latest")
+            if raw is not None:
+                candles[sym], sources[sym] = _from_cache(raw), "redis"
+        except RedisError as e:
+            logger.warning("Redis unavailable for %s, falling back to PostgreSQL: %s", sym, e)
+        except (ValueError, KeyError) as e:
+            logger.warning("Corrupt cache entry for %s, falling back to PostgreSQL: %s", sym, e)
+
+    misses = [s for s in symbols if s not in candles]
+    if misses:
+        for row in await pool.fetch(LATEST_SQL, misses):
+            candles[row["symbol"]], sources[row["symbol"]] = _from_row(row), "postgres"
+    return candles, sources
+
+
+@router.get("/all", summary="Latest candle for every tracked symbol")
 async def get_all_latest_prices(
+    request: Request,
     response: Response,
-    redis_client: aioredis.Redis = Depends(get_redis)
+    redis_client=Depends(get_redis),
+    pool=Depends(get_pool),
 ):
-    symbols = settings.SUPPORTED_SYMBOLS
-    results = {}
-    cache_hits = 0
+    symbols = list(symbols_of(request))
+    candles, sources = await _latest(symbols, redis_client, pool)
+    hits = sum(1 for s in sources.values() if s == "redis")
+    hit_rate = f"{hits / len(symbols) * 100:.1f}%"
+    response.headers["X-Total-Symbols"] = str(len(symbols))
+    response.headers["X-Cache-Hits"] = str(hits)
+    response.headers["X-Cache-Hit-Rate"] = hit_rate
 
-    try:
-        for symbol in symbols:
-            redis_key = f"crypto:{symbol}:latest"
-            cached_data = await redis_client.get(redis_key)
+    if not candles:
+        raise HTTPException(status_code=404, detail="No candles yet for any symbol")
 
-            if cached_data:
-                data = json.loads(cached_data)
-                results[symbol] = {
-                    "symbol": data["symbol"],
-                    "window_start": datetime.fromtimestamp(data["windowStart"]).isoformat(),
-                    "window_end": datetime.fromtimestamp(data["windowEnd"]).isoformat(),
-                    "open": data["open"],
-                    "high": data["high"],
-                    "low": data["low"],
-                    "close": data["close"],
-                    "volume_sum": data["volumeSum"],
-                    "event_count": data["eventCount"]
-                }
-                cache_hits += 1
-
-        response.headers["X-Total-Symbols"] = str(len(symbols))
-        response.headers["X-Cache-Hits"] = str(cache_hits)
-        response.headers["X-Cache-Hit-Rate"] = f"{(cache_hits / len(symbols)) * 100:.1f}%"
-
-        if not results:
-            raise HTTPException(
-                status_code=404,
-                detail="No data available for any cryptocurrency"
-            )
-
-        logger.info("Retrieved %d/%d latest prices", cache_hits, len(symbols))
-
-        return {
-            "timestamp": datetime.utcnow().isoformat(),
-            "prices": results,
-            "cache_hit_rate": f"{(cache_hits / len(symbols)) * 100:.1f}%"
-        }
-
-    except Exception as e:
-        logger.error("Error fetching all prices: %s", e)
-        raise HTTPException(status_code=500, detail=f"Failed to fetch prices: {str(e)}")
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "prices": {sym: c.model_dump(mode="json") for sym, c in candles.items()},
+        "cache_hit_rate": hit_rate,
+    }
 
 
 @router.get(
     "/{symbol}",
     response_model=LatestPriceResponse,
-    responses={
-        404: {"model": ErrorResponse, "description": "Symbol not found"},
-        500: {"model": ErrorResponse, "description": "Internal server error"}
-    },
-    summary="Get latest price for cryptocurrency",
-    description="Fetches the most recent 1-minute OHLC candle from Redis cache. "
-                "Data is updated in real-time by the Flink streaming pipeline."
+    responses={404: {"model": ErrorResponse}, 400: {"model": ErrorResponse}},
+    summary="Latest candle for one symbol",
 )
 async def get_latest_price(
-    response: Response,
     symbol: str,
-    redis_client: aioredis.Redis = Depends(get_redis)
+    request: Request,
+    response: Response,
+    redis_client=Depends(get_redis),
+    pool=Depends(get_pool),
 ) -> LatestPriceResponse:
-    symbol = symbol.upper()
-
-    if symbol not in settings.SUPPORTED_SYMBOLS:
+    symbol = require_symbol(symbols_of(request), symbol)
+    candles, sources = await _latest([symbol], redis_client, pool)
+    if symbol not in candles:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid symbol: {symbol}. Supported: {', '.join(settings.SUPPORTED_SYMBOLS)}"
+            status_code=404,
+            detail=f"No candle for {symbol} yet; the first one appears after the first full minute of trades.",
         )
-
-    redis_key = f"crypto:{symbol}:latest"
-
-    try:
-        cached_data = await redis_client.get(redis_key)
-
-        if cached_data is None:
-            response.headers["X-Cache-Hit"] = "false"
-            logger.warning("Cache miss for key: %s", redis_key)
-            raise HTTPException(
-                status_code=404,
-                detail=f"No recent data available for {symbol}. "
-                       f"Please wait for the next 1-minute window to complete."
-            )
-
-        data = json.loads(cached_data)
-        ttl = await redis_client.ttl(redis_key)
-
-        result = LatestPriceResponse(
-            symbol=data["symbol"],
-            window_start=datetime.fromtimestamp(data["windowStart"]),
-            window_end=datetime.fromtimestamp(data["windowEnd"]),
-            open=Decimal(str(data["open"])),
-            high=Decimal(str(data["high"])),
-            low=Decimal(str(data["low"])),
-            close=Decimal(str(data["close"])),
-            volume_sum=Decimal(str(data["volumeSum"])),
-            event_count=data["eventCount"]
-        )
-
-        response.headers["X-Cache-Hit"] = "true"
-        response.headers["X-Cache-TTL-Seconds"] = str(ttl)
-        response.headers["X-Data-Source"] = "redis"
-        response.headers["X-Data-Age-Seconds"] = str(
-            int((datetime.utcnow() - result.window_end).total_seconds())
-        )
-
-        logger.info("Cache hit for %s (TTL: %ss)", symbol, ttl)
-        return result
-
-    except json.JSONDecodeError as e:
-        logger.error("JSON decode error for %s: %s", symbol, e)
-        raise HTTPException(status_code=500, detail="Data format error in cache")
-
-    except aioredis.RedisError as e:
-        logger.error("Redis error for %s: %s", symbol, e)
-        raise HTTPException(status_code=500, detail="Cache service unavailable")
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        logger.error("Unexpected error for %s: %s", symbol, e)
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+    candle = candles[symbol]
+    response.headers["X-Data-Source"] = sources[symbol]
+    response.headers["X-Cache-Hit"] = str(sources[symbol] == "redis").lower()
+    response.headers["X-Data-Age-Seconds"] = str(
+        int((datetime.now(timezone.utc) - candle.window_end).total_seconds())
+    )
+    return candle
