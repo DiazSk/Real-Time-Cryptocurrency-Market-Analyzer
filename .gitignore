@@ -67,8 +67,8 @@ continuous_*.py
 quick_*.py
 produce_test_*.py
 
-# Except: legitimate test files in tests/
-!tests/test_*.py
+# Except: everything under tests/ (the *test*.py rule above targets ad-hoc scripts)
+!/tests/**
 
 graphify-out/
 
