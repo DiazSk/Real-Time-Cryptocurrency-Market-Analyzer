@@ -129,7 +129,13 @@ services:
     container_name: flink-jobmanager
     ports:
       - "8082:8081"
-    command: jobmanager
+    # A fresh flink_data volume is created root:root by Docker, but Flink runs as
+    # uid 9999 (flink) inside the image and needs to write checkpoints/savepoints there.
+    # entrypoint is overridden (not just command) so this chown runs as root: the
+    # image's own /docker-entrypoint.sh drops to the flink user for any command it
+    # doesn't recognize (e.g. "bash"), which would make the chown a no-op/no-op-fail.
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["chown -R flink:flink /opt/flink/data && exec /docker-entrypoint.sh jobmanager"]
     environment:
       # JDBC sink + Kafka source in CryptoPriceAggregator.java read these.
       # Internal Docker networking: postgres:5432 (not the host-exposed 5433).
@@ -184,7 +190,15 @@ services:
     depends_on:
       jobmanager:
         condition: service_healthy
-    command: taskmanager
+    # A fresh flink_data volume is created root:root by Docker, but Flink runs as
+    # uid 9999 (flink) inside the image and needs to write checkpoints there. Also,
+    # /docker-entrypoint.sh rewrites conf/flink-conf.yaml in place (sed/envsubst), so
+    # it must not be bind-mounted directly from the repo — copy it in first instead.
+    # entrypoint is overridden (not just command) so chown/cp run as root: the image's
+    # own /docker-entrypoint.sh drops to the flink user for any command it doesn't
+    # recognize (e.g. "bash"), which would deny both the chown and the conf-file cp.
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["chown -R flink:flink /opt/flink/data && cp /opt/flink/conf-src/flink-conf.yaml /opt/flink/conf/flink-conf.yaml && exec /docker-entrypoint.sh taskmanager"]
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
@@ -205,7 +219,7 @@ services:
         parallelism.default: 4
     volumes:
       - flink_data:/opt/flink/data
-      - ./configs/flink-conf.yaml:/opt/flink/conf/flink-conf.yaml
+      - ./configs/flink-conf.yaml:/opt/flink/conf-src/flink-conf.yaml:ro
     networks:
       - crypto-network
     scale: 1
