@@ -67,4 +67,10 @@ continuous_*.py
 quick_*.py
 produce_test_*.py
 
+# Except: legitimate test files in tests/
+!tests/test_*.py
+
 graphify-out/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
