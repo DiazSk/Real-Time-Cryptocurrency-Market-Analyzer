@@ -164,8 +164,8 @@ public class CryptoPriceAggregator {
         env.execute("Crypto trades -> OHLCV + z-score alerts");
     }
 
-    /** Kafka JSON to Trade. Malformed or invalid records return null, which the Kafka source skips. */
-    private static class TradeDeserializer extends AbstractDeserializationSchema<Trade> {
+    /** Kafka JSON to Trade. Malformed, null, or invalid records return null, which the Kafka source skips. */
+    static class TradeDeserializer extends AbstractDeserializationSchema<Trade> {
 
         private static final long serialVersionUID = 1L;
         private transient ObjectMapper mapper;
@@ -177,13 +177,27 @@ public class CryptoPriceAggregator {
 
         @Override
         public Trade deserialize(byte[] message) {
+            // A Kafka tombstone (null record value) has no bytes to parse.
+            if (message == null) {
+                LOG.warn("Dropping null record");
+                return null;
+            }
+            if (mapper == null) {
+                // open() may not have run (e.g. unit tests calling deserialize directly).
+                mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+            }
             try {
                 Trade t = mapper.readValue(message, Trade.class);
+                if (t == null) {
+                    // The JSON literal `null` deserializes to a null Trade, not an exception.
+                    LOG.warn("Dropping null trade: {}", new String(message, StandardCharsets.UTF_8));
+                    return null;
+                }
                 if (t.isValid()) {
                     return t;
                 }
                 LOG.warn("Dropping invalid trade: {}", new String(message, StandardCharsets.UTF_8));
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 LOG.warn("Dropping undeserializable record: {}", e.getMessage());
             }
             return null;

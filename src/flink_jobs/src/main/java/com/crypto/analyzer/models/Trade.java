@@ -51,6 +51,7 @@ public class Trade implements Serializable {
     public boolean isValid() {
         return tradeId > 0 && symbol != null && eventTime != null && ingestTime != null
                 && price != null && price.signum() > 0
-                && size != null && size.signum() > 0;
+                && size != null && size.signum() > 0
+                && ("buy".equals(side) || "sell".equals(side));
     }
 }
