@@ -185,3 +185,22 @@ Out of scope here: CI, load tests, chaos tests (all sub-project 2).
 ## Out of scope
 
 CoinGecko-backed frontend pages (unchanged), CI, benchmarks, dbt, backfill, schema registry/Avro, cloud deployment, auth.
+
+## Acceptance run (2026-09-26)
+
+Ran against a freshly torn-down and rebuilt local stack (`scripts/teardown.sh` then `scripts/start_pipeline.sh`, Maven-built Flink job deployed via `make build-flink deploy-flink`), plus `scripts/inject_test_alert.py` publishing a synthetic 35-minute TEST trade stream that ends in a sharp jump. One environment fix was required before the job would start: the `flink_data` named Docker volume was created `root:root` by Docker after teardown, and the `flink` user inside the containers could not write `/opt/flink/data/checkpoints`, so the first `deploy-flink` submission failed with `IOException: Failed to create directory for shared state`. Fixed with `docker exec -u root flink-jobmanager chown -R flink:flink /opt/flink/data` (an ops-level permission fix on the shared volume, no product code or compose file changed) before resubmitting; the second submission (JobID `397f19af8a705cbf43bdccc920cb79fc`) ran for the remainder of the test. This is worth a permanent fix (e.g. an `init` container or `user:` directive) but is out of scope for this verification task.
+
+| # | Criterion | Result | Observed |
+|---|-----------|--------|----------|
+| 1 | `raw_trades` grows, 0 duplicates | PASS | `raw_trades` count 17,847 at 06:56:11Z → 18,009 at 06:56:29Z (growing); duplicate query (`crypto_id, trade_id` group-by having count>1) = 0 |
+| 2 | Every `price_aggregates_1m` row has `trade_count > 0` and `low_price ≤ vwap ≤ high_price` | PASS | bad-candle count = 0; `price_aggregates_1m` row count = 323 |
+| 3 | `candles_5m`, `candles_15m`, `candles_1h` all return rows | PASS | `candles_5m` = 62, `candles_15m` = 9, `candles_1h` = 9 (after manual `refresh_continuous_aggregate`) |
+| 4 | TEST alert appears in Postgres, `crypto-alerts` (read_committed), and the API | PASS | `price_alerts`: exactly one row, `PRICE_SPIKE \| HIGH \| z_score 63.3248`; Kafka `crypto-alerts` read_committed consumer returned exactly one `"symbol":"TEST"` line (`z_score 63.32484600102509`, `price_change_percent 5.1271`, window `06:54:00Z`–`06:55:00Z`); `GET /api/v1/alerts/ALL?hours=2` contained 1 `"TEST"` match |
+| 5 | Redis flush fallback | PASS | `/api/v1/latest/BTC` returned `x-data-source: redis` before `FLUSHALL`; `HTTP/1.1 200 OK` and `x-data-source: postgres` after |
+| 6 | TaskManager restart recovery, shared checkpoints | PASS | `chk-73` present under `/opt/flink/data/checkpoints/<job-id>/` before restart; `docker restart flink-taskmanager` issued at 06:57:05Z; job observed `RUNNING` again at 06:57:20Z (≈15s, well under the 4-minute budget); duplicate-row query re-run after recovery = 0 |
+| 7 | Unit tests pass | PASS | `make test`: pytest `35 passed, 5 warnings in 0.33s`; `mvn -q test` (Flink/JUnit) completed with no failures reported |
+
+Additional measurements:
+- Producer stats (last line captured before cleanup, `/tmp` redirected from `scripts/start_pipeline.sh`, timestamps in local time): `2026-09-25 23:57:32,768 stats {'published': 17969, 'invalid': 0, 'duplicates': 0, 'send_errors': 0, 'reconnects': 0} missed_trades=0`. Producer had been running since 23:19:26 local time and was left running at the user's request (~38 minutes elapsed at last sample).
+- Flink Kryo/POJO fallback check: `docker logs flink-jobmanager` and `docker logs flink-taskmanager` grepped for `cannot be used as a POJO|GenericType|Kryo` at two points (after ~10 minutes and again after ~38 minutes of runtime) — no matches either time.
+- TEST fixture rows (`price_alerts`, `price_aggregates_1m`, `raw_trades` for the TEST crypto_id) were deleted per the brief's Step 8; the `cryptocurrencies` row for TEST (`is_active = false`) was left in place for future re-runs.
