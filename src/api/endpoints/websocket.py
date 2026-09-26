@@ -7,9 +7,13 @@ Streams: Real-time price updates via Redis Pub/Sub (event-driven, not polling)
 Message protocol (discriminated union on `type`):
     - connection    {type, message, symbol, timestamp, mode}
     - initial_data  {type, symbol, data: <candle>, timestamp}
-    - price_update  {type, symbol, data: <candle>, timestamp}  (pushed by Pub/Sub)
+    - price_update  {type, symbol, data: <candle>, timestamp}  (Pub/Sub crypto:updates)
+    - trade         {type, symbol, price, time}                (Pub/Sub crypto:trades, live tick)
     - keepalive     {type, timestamp, connections}             (every 30s idle)
     - pong          {type, timestamp}                          (response to client ping)
+
+Both price_update and trade reach every symbol-specific subscriber for that
+symbol AND every ALL subscriber (broadcast_to_symbol sends to both).
 
 Client -> server: {type: "ping"} for liveness checks. All other client frames
 are tolerated but ignored.
@@ -17,7 +21,7 @@ are tolerated but ignored.
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from ..registry import symbols_of
-from ..pubsub import pubsub_manager
+from ..pubsub import pubsub_dispatcher
 import json
 import logging
 import asyncio
@@ -109,28 +113,34 @@ class ConnectionManager:
         if disconnected:
             logger.info(f"Cleaned up {len(disconnected)} disconnected clients")
     
-    async def handle_pubsub_message(self, data: dict):
+    async def handle_message(self, channel: str, data: dict):
         """
-        Handler for Redis Pub/Sub messages
-        Broadcasts to appropriate WebSocket clients based on symbol
+        Handler for Redis Pub/Sub messages (registered on pubsub_dispatcher below).
+        Broadcasts to appropriate WebSocket clients based on symbol.
         """
         try:
             symbol = data.get("symbol", "UNKNOWN")
-            
-            # Create WebSocket message
-            message = {
-                "type": "price_update",
-                "symbol": symbol,
-                "data": data,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": "redis_pubsub"
-            }
-            
-            # Broadcast to clients subscribed to this symbol
+
+            if channel == "crypto:trades":
+                message = {
+                    "type": "trade",
+                    "symbol": symbol,
+                    "price": data.get("price"),
+                    "time": data.get("time"),
+                }
+            else:  # crypto:updates — a candle
+                message = {
+                    "type": "price_update",
+                    "symbol": symbol,
+                    "data": data,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "source": "redis_pubsub"
+                }
+
             await self.broadcast_to_symbol(symbol, message)
-            
-            logger.debug(f"📡 Broadcasted {symbol} update to WebSocket clients")
-            
+
+            logger.debug(f"📡 Broadcasted {symbol} {message['type']} to WebSocket clients")
+
         except Exception as e:
             logger.error(f"Error handling Pub/Sub message: {e}")
 
@@ -138,38 +148,8 @@ class ConnectionManager:
 # Global connection manager
 manager = ConnectionManager()
 
-
-@router.on_event("startup")
-async def startup_websocket():
-    """
-    Initialize Redis Pub/Sub on application startup
-    """
-    try:
-        # Connect to Redis Pub/Sub
-        pubsub_manager.connect()
-        
-        # Register message handler
-        pubsub_manager.add_handler(manager.handle_pubsub_message)
-        
-        # Start listening in background thread
-        pubsub_manager.start_listening()
-        
-        logger.info("✅ WebSocket Pub/Sub system initialized")
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to initialize WebSocket Pub/Sub: {e}")
-
-
-@router.on_event("shutdown")
-async def shutdown_websocket():
-    """
-    Cleanup Redis Pub/Sub on application shutdown
-    """
-    try:
-        pubsub_manager.stop_listening()
-        logger.info("✅ WebSocket Pub/Sub system shut down")
-    except Exception as e:
-        logger.error(f"Error shutting down Pub/Sub: {e}")
+# Redis Pub/Sub -> WebSocket bridge; database.lifespan starts/stops the listener task.
+pubsub_dispatcher.add_handler(manager.handle_message)
 
 
 @router.websocket("/ws/prices/{symbol}")
@@ -457,6 +437,6 @@ async def websocket_stats():
             symbol: len(connections) 
             for symbol, connections in manager.connections.items()
         },
-        "pubsub_active": pubsub_manager.is_running,
+        "pubsub_active": pubsub_dispatcher.is_running,
         "mode": "event_driven_pubsub"
     }

@@ -12,6 +12,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from .config import settings
+from .pubsub import pubsub_dispatcher
 from ..symbols import fetch_symbols
 
 logger = logging.getLogger(__name__)
@@ -42,7 +43,9 @@ async def lifespan(app: FastAPI):
                 settings.POSTGRES_HOST, settings.POSTGRES_PORT,
                 settings.REDIS_HOST, settings.REDIS_PORT,
                 len(app.state.symbols))
+    pubsub_dispatcher.start(app.state.redis)
     yield
+    await pubsub_dispatcher.stop()
     await app.state.db_pool.close()
     await app.state.redis.aclose()
     logger.info("Database connections closed")
