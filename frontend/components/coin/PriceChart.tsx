@@ -32,9 +32,10 @@ const PERIODS = Object.keys(PERIOD_CONFIG) as Period[];
 
 // ── Our intervals (tracked symbols) ────────────────────────────────────────
 // /historical serves the last 24 h by default; these limits fill the chart.
-// `limit` is how far back we fetch; the chart then shows the most recent
-// contiguous run (see `recentRun`), at least MIN_SLOTS wide.
-const MIN_SLOTS = 30;
+// `limit` is how far back we fetch; the chart then fits the x axis to the most
+// recent contiguous run (see `recentRun`), never narrower than MIN_SLOTS so a
+// handful of candles don't stretch into slabs.
+const MIN_SLOTS = 8;
 const INTERVALS: { value: CandleInterval; limit: number; stepMs: number }[] = [
   { value: "1m", limit: 120, stepMs: 60_000 },
   { value: "5m", limit: 144, stepMs: 300_000 },
@@ -145,7 +146,7 @@ function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 236 
     const run = recentRun(points, spec.stepMs * 5);
     const first = run[0].date.getTime();
     const last = run.at(-1)!.date.getTime();
-    const n = Math.min(spec.limit, Math.max(Math.min(MIN_SLOTS, spec.limit), (last - first) / spec.stepMs + 1));
+    const n = Math.min(spec.limit, Math.max(MIN_SLOTS, Math.round((last - first) / spec.stepMs) + 1));
     const domain: [Date, Date] = [new Date(last - (n - 1) * spec.stepMs), new Date(last)];
     return { shown: run, xDomain: domain, slots: n, trimmed: run.length < points.length };
   }, [tracked, points, spec]);
@@ -154,12 +155,12 @@ function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 236 
   const intraday = tracked || period === "daily" || period === "weekly";
   const caption = tracked
     ? shown.length
-      ? `${interval} candles from ${fmtClock(shown[0].date)} · our pipeline · refreshed every 60 s${trimmed ? " · older candles before a gap hidden" : ""}`
+      ? `${interval} candles from ${fmtClock(xDomain ? xDomain[0] : shown[0].date)} · our pipeline · refreshed every 60 s${trimmed ? " · older candles before a gap hidden" : ""}`
       : `${interval} candles · our pipeline · refreshed every 60 s`
     : `CoinGecko OHLC · ${PERIOD_CONFIG[period].grain}`;
 
   return (
-    <section aria-label="Candlestick chart" className="fringe-top pt-5">
+    <section aria-label="Candlestick chart" className={tracked ? "fringe-top pt-5" : "border-t pt-5"}>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="heading">Candles</h2>
@@ -218,13 +219,14 @@ function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 236 
             xDomainSlotCount={slots}
             dateFormat={intraday ? fmtClock : fmtDay}
             aspectRatio="auto"
+            className="chart-slot"
             style={{ height, touchAction: "pan-y" }}
             margin={{ top: 8, right: 76, bottom: 30, left: 44 }}
             animationDuration={600}
           >
             <Grid horizontal numTicksRows={4} strokeDasharray="2 4" />
             <Candlestick positiveFill="var(--up)" negativeFill="var(--down)" />
-            <YAxis orientation="right" numTicks={4} formatValue={(v) => fmtPrice(v)} />
+            <YAxis orientation="right" numTicks={4} bottomInset={14} formatValue={(v) => fmtPrice(v)} />
             <XAxis
               numTicks={5}
               tickMode={xDomain ? "domain" : "data"}

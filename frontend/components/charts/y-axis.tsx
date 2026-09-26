@@ -29,6 +29,8 @@ export interface YAxisProps {
   formatLargeNumbers?: boolean;
   /** Custom formatter for tick labels (e.g. USD). Overrides formatLargeNumbers when set. */
   formatValue?: (value: number) => string;
+  /** Hide ticks within this many px of the plot bottom (keeps clear of the last x label). Default: 0 */
+  bottomInset?: number;
 }
 
 function formatLabel(
@@ -96,6 +98,7 @@ const YAxisInner = memo(function YAxisInner({
   numTicks = Y_AXIS_DEFAULT_TICK_COUNT,
   formatLargeNumbers = true,
   formatValue,
+  bottomInset = 0,
   container,
 }: YAxisProps & { container: HTMLDivElement }) {
   const { margin, referenceAreas } = useChartStable();
@@ -104,7 +107,10 @@ const YAxisInner = memo(function YAxisInner({
   const axisId = normalizeYAxisId(yAxisId);
 
   const ticks = useMemo(() => {
-    const tickValues = yScale.ticks(resolveYAxisTickCount(numTicks));
+    const bottom = Math.max(...(yScale.range() as number[]));
+    const tickValues = yScale
+      .ticks(resolveYAxisTickCount(numTicks))
+      .filter((v) => (yScale(v) ?? 0) <= bottom - bottomInset);
     return tickValues.map((value) => {
       const y = (yScale(value) ?? 0) + margin.top;
       return {
@@ -127,6 +133,7 @@ const YAxisInner = memo(function YAxisInner({
     formatValue,
     axisId,
     referenceAreas,
+    bottomInset,
   ]);
 
   return createPortal(

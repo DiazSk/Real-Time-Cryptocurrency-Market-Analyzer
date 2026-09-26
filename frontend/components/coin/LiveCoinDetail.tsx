@@ -1,6 +1,6 @@
 "use client";
 
-import { LivePriceChart } from "@/components/coin/LivePriceChart";
+import { LivePriceChart, useLiveWindow } from "@/components/coin/LivePriceChart";
 import { LiveProvenance, PriceHero } from "@/components/coin/PriceHero";
 import { PriceChart } from "@/components/coin/PriceChart";
 import type { CoinDetail } from "@/lib/coingecko";
@@ -33,7 +33,7 @@ function TrackedDetail({ coin, symbol }: LiveCoinDetailProps & { symbol: string 
   const { status, latestBySymbol, series } = useLiveTrades(symbol);
   const now = useNowSeconds();
   const pts = series[symbol] ?? [];
-  const last = pts.at(-1);
+  const last = useLiveWindow(symbol, pts).data.at(-1); // newest seeded or streamed trade
   const price = last?.value ?? latestBySymbol[symbol]?.close ?? coin.market_data.current_price.usd;
 
   return (

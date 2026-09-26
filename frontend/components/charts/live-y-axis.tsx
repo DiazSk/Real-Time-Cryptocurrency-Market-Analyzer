@@ -84,6 +84,8 @@ export interface LiveYAxisProps {
   formatValue?: (v: number) => string;
   /** Allow decimal tick values. Default: true */
   allowDecimals?: boolean;
+  /** Hide ticks within this many px of the plot bottom (keeps clear of the last x label). Default: 0 */
+  bottomInset?: number;
 }
 
 const tickSpring = { type: "spring" as const, stiffness: 180, damping: 24 };
@@ -109,6 +111,7 @@ const LiveYAxisInner = memo(function LiveYAxisInner({
   position = "left",
   formatValue = (v: number) => v.toFixed(2),
   allowDecimals = true,
+  bottomInset = 0,
   container,
 }: LiveYAxisProps & { container: HTMLDivElement }) {
   const { yScale, margin, innerHeight } = useChartStable();
@@ -179,8 +182,8 @@ const LiveYAxisInner = memo(function LiveYAxisInner({
             edgeAlpha: edgeOpacity(y, innerHeight),
           };
         })
-        .filter((t) => t.y >= -10 && t.y <= innerHeight + 10),
-    [stableTickValues, yScale, innerHeight, formatValue]
+        .filter((t) => t.y >= -10 && t.y <= (bottomInset ? innerHeight - bottomInset : innerHeight + 10)),
+    [stableTickValues, yScale, innerHeight, formatValue, bottomInset]
   );
 
   const isLeft = position === "left";

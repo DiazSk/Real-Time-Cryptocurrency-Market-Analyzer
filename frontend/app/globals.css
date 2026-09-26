@@ -198,6 +198,18 @@
     pointer-events: none;
   }
 
+  /* The active nav fringe sits ON the header's bottom hairline, not above it. */
+  .nav-fringe::after {
+    bottom: -1px;
+  }
+
+  /* A chart measures itself on the client; until it paints, hold its space. */
+  .chart-slot:not(:has(svg)) {
+    background: var(--mist);
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
   .skeleton {
     background: var(--mist);
     border-radius: 6px;

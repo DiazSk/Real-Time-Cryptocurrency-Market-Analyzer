@@ -92,15 +92,12 @@ export function LiveProvenance({
   const fresh = open && age !== undefined && age < 15;
 
   let text: string;
-  if (open && age === undefined) text = `Connected · waiting for the first ${symbol} trade`;
-  else if (open && fresh) text = `Live · Coinbase trades through our pipeline · updated ${fmtAge(age!)} ago`;
-  else if (open) text = `Live stream open · no ${symbol} trades for ${fmtAge(age!)}`;
-  else if (status === "connecting") text = "Connecting to our live stream…";
-  else
-    text =
-      age === undefined
-        ? "Live stream disconnected · reconnecting"
-        : `Live stream disconnected · reconnecting · last trade ${fmtAge(age)} ago`;
+  if (age === undefined)
+    text = open ? `Connected · waiting for the first ${symbol} trade` : status === "connecting" ? "Connecting to our live stream…" : "Live stream disconnected · reconnecting";
+  else if (open && fresh) text = `Live · Coinbase trades through our pipeline · last trade ${fmtAge(age)} ago`;
+  else if (open) text = `Live stream open · no ${symbol} trades for ${fmtAge(age)}`;
+  else if (status === "connecting") text = `Connecting to our live stream · last trade ${fmtAge(age)} ago`;
+  else text = `Live stream disconnected · reconnecting · last trade ${fmtAge(age)} ago`;
 
   return (
     <>

@@ -176,6 +176,14 @@ const ChartCore = memo(function ChartCore({
     if (maxVal === Number.NEGATIVE_INFINITY) {
       maxVal = 100;
     }
+    // Floor the span at 0.02% of price so a one-tick range (a quiet minute)
+    // doesn't stretch to full height and repeat the same y label.
+    const minSpan = Math.abs((maxVal + minVal) / 2) * 0.0002;
+    if (maxVal - minVal < minSpan) {
+      const mid = (maxVal + minVal) / 2;
+      minVal = mid - minSpan / 2;
+      maxVal = mid + minSpan / 2;
+    }
     const padding = (maxVal - minVal) * 0.05 || 1;
     return scaleLinear({
       range: [innerHeight, 0],

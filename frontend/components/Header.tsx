@@ -37,7 +37,7 @@ export function Header() {
                 className={cn(
                   "flex h-14 items-center px-2 text-sm transition-colors",
                   active
-                    ? "fringe-bottom text-foreground"
+                    ? "fringe-bottom nav-fringe text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 import { AlertsFeed } from "@/components/alerts/AlertsFeed";
-import { LivePriceChart } from "@/components/coin/LivePriceChart";
+import { LivePriceChart, useLiveWindow } from "@/components/coin/LivePriceChart";
 import { LiveProvenance, PriceHero } from "@/components/coin/PriceHero";
 import { PriceChart } from "@/components/coin/PriceChart";
 import { CandleTable } from "@/components/ohlc/CandleTable";
@@ -39,7 +39,8 @@ export function LiveDashboardSection() {
   }
 
   const meta = symbols?.find((s) => s.symbol === symbol);
-  const price = prices[symbol] ?? latestBySymbol[symbol]?.close;
+  const newest = useLiveWindow(symbol, series[symbol] ?? []).data.at(-1); // seeded or streamed
+  const price = prices[symbol] ?? newest?.value ?? latestBySymbol[symbol]?.close;
   const { pct, window } = useChange(symbol, price);
 
   return (
@@ -66,7 +67,7 @@ export function LiveDashboardSection() {
             <LiveProvenance
               status={status}
               symbol={symbol}
-              lastTradeAt={lastTradeAt[symbol]}
+              lastTradeAt={newest?.time}
               now={now}
             />
           }
