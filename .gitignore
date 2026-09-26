@@ -67,4 +67,13 @@ continuous_*.py
 quick_*.py
 produce_test_*.py
 
+# Except: everything under tests/ (the *test*.py rule above targets ad-hoc scripts)
+!/tests/**
+# But keep compiled bytecode ignored under tests/
+/tests/**/__pycache__/
+/tests/**/*.pyc
+
 graphify-out/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

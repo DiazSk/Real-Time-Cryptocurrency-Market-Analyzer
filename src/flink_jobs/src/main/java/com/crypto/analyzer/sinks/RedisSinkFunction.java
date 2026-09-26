@@ -1,6 +1,6 @@
 package com.crypto.analyzer.sinks;
 
-import com.crypto.analyzer.models.OHLCCandle;
+import com.crypto.analyzer.models.Candle;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.flink.configuration.Configuration;
@@ -15,19 +15,21 @@ import redis.clients.jedis.exceptions.JedisException;
 import java.time.Duration;
 
 /**
- * Custom Redis sink for caching latest OHLC candles with Pub/Sub notification.
+ * Writes the latest 1-minute Candle per symbol to Redis (write-through, 300 s TTL) and
+ * publishes it on Pub/Sub. At-least-once: a replay after restart overwrites the same key and
+ * may re-publish, which clients tolerate by keying on windowStart.
  *
  * Stores latest candle for each cryptocurrency with TTL of 5 minutes.
  * After writing to cache, publishes event to Redis Pub/Sub channel for real-time updates.
  *
  * Key pattern: crypto:{SYMBOL}:latest
- * Value: JSON representation of OHLCCandle
+ * Value: JSON representation of Candle
  * TTL: 300 seconds (5 minutes)
  * Pub/Sub Channel: crypto:updates
  *
  * Uses Jedis connection pool for thread-safety and efficiency.
  */
-public class RedisSinkFunction extends RichSinkFunction<OHLCCandle> {
+public class RedisSinkFunction extends RichSinkFunction<Candle> {
     
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(RedisSinkFunction.class);
@@ -105,7 +107,7 @@ public class RedisSinkFunction extends RichSinkFunction<OHLCCandle> {
      * Write OHLC candle to Redis cache and publish event
      */
     @Override
-    public void invoke(OHLCCandle candle, Context context) throws Exception {
+    public void invoke(Candle candle, Context context) throws Exception {
         
         if (candle == null || candle.getSymbol() == null) {
             LOG.warn("Skipping null candle or candle with null symbol");

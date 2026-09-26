@@ -20,8 +20,10 @@ export type WsCandle = {
   high: number;
   low: number;
   close: number;
-  volumeSum: number;
-  eventCount: number;
+  vwap: number;
+  volume: number;
+  quoteVolume: number;
+  tradeCount: number;
 };
 
 type Listener = (msg: WsMessage) => void;

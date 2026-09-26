@@ -2,71 +2,72 @@
 
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A streaming data pipeline that ingests live cryptocurrency prices from the CoinGecko API, aggregates them into OHLC candlesticks using Apache Flink, and serves the results through a FastAPI backend, a **Next.js 16 web terminal** (primary UI), and a Streamlit ops dashboard (interim / internal use).
+A streaming data pipeline that ingests **every trade** for 8 crypto pairs from Coinbase's public WebSocket feed, deduplicates and aggregates them into 1-minute OHLCV candles in event time with Apache Flink, flags statistically unusual moves with a z-score detector, and serves the results through FastAPI and a Next.js terminal. TimescaleDB continuous aggregates provide 5-minute, 15-minute and 1-hour rollups.
 
-Tracks **8 symbols** end-to-end: `BTC`, `ETH`, `SOL`, `XRP`, `ADA`, `DOGE`, `AVAX`, `MATIC`. Runs entirely in Docker.
+Tracks `BTC`, `ETH`, `SOL`, `XRP`, `ADA`, `DOGE`, `AVAX`, `POL` (Polygon; `MATIC-USD` is delisted on Coinbase). The list lives in one place: the `cryptocurrencies` table. Runs entirely in Docker.
 
 ---
 
 ## Architecture
 
-![Architecture diagram](docs/screenshots/architecture-diagram-high-level.png)
-<!-- ```
-CoinGecko API
+```
+Coinbase Exchange WebSocket (matches channel, public)
+     │  one message per trade
+     ▼
+Python producer   pydantic validation · trade_id gap tracking · reconnect backoff
+     │  Kafka topic crypto-trades (4 partitions, keyed by symbol)
+     ▼
+Apache Flink      event time from the exchange · 30 s exactly-once checkpoints · RocksDB state
+ ├─ Dedup by trade_id (keyed state)
+ ├─ raw trades ─────────────► TimescaleDB raw_trades (7-day retention)
+ ├─ 1-min OHLCV + VWAP ─────► TimescaleDB price_aggregates_1m ──► continuous aggregates 5m · 15m · 1h
+ │                     └────► Redis latest candle + Pub/Sub
+ └─ z-score anomaly detector ► TimescaleDB price_alerts
+                        └────► Kafka crypto-alerts (transactional, exactly-once)
      │
      ▼
-Python Producer  (tenacity retry + exponential backoff)
-     │
-     ▼  Kafka topic: crypto-prices
-     │
-     ▼
-Apache Flink  (Java, event-time, tumbling windows)
- ├─ 1-min OHLC  ──► PostgreSQL / TimescaleDB  (UPSERT)
- ├─ 1-min OHLC  ──► Redis  (latest candle, 300s TTL)
- ├─ 5-min OHLC  ──► stdout
- ├─ 15-min OHLC ──► stdout
- └─ Anomaly Detector  ──► Kafka topic: crypto-alerts
-                               │
-                               ▼
-                          FastAPI alerts endpoint
-     │
-     ▼
-FastAPI  (asyncpg + redis.asyncio, no blocking I/O)
- ├─ GET /api/v1/latest/{symbol}     ← Redis
- ├─ GET /api/v1/historical/{symbol} ← PostgreSQL
- ├─ GET /api/v1/alerts              ← PostgreSQL
- ├─ GET /api/v1/symbols             ← static (config)
- ├─ GET /api/v1/trending            ← PostgreSQL (v_latest_prices view)
- └─ WS  /ws/prices/{symbol}        ← Redis Pub/Sub
-     │
-     ├──► Next.js Terminal    (primary UI,    :3000)
-     │      ├─ Server Components → CoinGecko REST proxy (ISR-cached)
-     │      └─ Client Components → useCryptoSocket / TanStack Query
-     │
-     └──► Streamlit Dashboard (interim ops view, :8501)
-``` -->
+FastAPI (asyncpg + redis.asyncio) ── REST + WebSocket ──► Next.js terminal (:3000)
+```
 
 ### Key implementation details
 
 | Concern | Implementation |
 |---|---|
-| Retry / backoff | `tenacity` `@retry` with `wait_random_exponential`, replaces hand-rolled sleep loops |
-| Flink checkpointing | Chandy-Lamport snapshots every 60 s, `EXACTLY_ONCE`, retained on cancellation |
-| Flink state TTL | `AnomalyDetector` state expires after 1 h to prevent unbounded RocksDB growth |
-| Kafka alert sink | `DeliveryGuarantee.EXACTLY_ONCE` (Flink-Kafka transactional integration) |
-| PostgreSQL sink | At-least-once + idempotent `ON CONFLICT DO UPDATE` (same visible result) |
+| TimescaleDB retention | Native `add_retention_policy`: 7 days for raw_trades, 90 days for candles and rollups |
 | Async API drivers | `asyncpg` + `redis.asyncio`; connection pools stored on `app.state` via lifespan |
-| TimescaleDB retention | Native `add_retention_policy` — 7 days for raw data, 90 days for aggregates |
 | Next.js data fetching | Server Components + `fetch` ISR for CoinGecko; TanStack Query for backend REST; `useCryptoSocket` for WS |
-| Frontend WS resilience | Exponential-backoff reconnect (1 s → 30 s), 25 s ping, 60 s dead-frame timeout, Zod-validated frames |
-| Streamlit refresh | `st_autorefresh` (non-blocking); `time.sleep + st.rerun` was removed |
+| Frontend WS resilience | Exponential-backoff reconnect (1 s → 30 s), 25 s ping, 60 s dead-frame timeout, validated WS envelope (`ws.ts` casts `data`) |
+| Checkpointing | 30 s, EXACTLY_ONCE, RocksDB incremental, retained on cancel, shared flink_data volume |
+| Dedup | Keyed last-seen trade_id per symbol (DedupByTradeId) + raw_trades primary key |
+| Source validation | Flink's `TradeDeserializer` drops malformed JSON, Kafka tombstones and records with an invalid `side` at the source (`Trade.isValid`), so one bad record can't crash-loop the job |
+| Anomaly detection | EWMA z-score of 1-min log returns, 30-candle warm-up, `trade_count ≥ 5`, \|z\| > 4, severity bands |
+| Alert direction & severity | Direction (`PRICE_SPIKE` / `PRICE_DROP`) comes from the sign of the price move (close vs. previous close); severity comes from `\|z\|`: LOW 4–6, MEDIUM 6–8, HIGH ≥ 8 |
+
+### Delivery guarantees
+
+| Sink | Mechanism | Guarantee |
+|---|---|---|
+| `raw_trades` hypertable | JDBC batch, `ON CONFLICT (crypto_id, trade_id, event_time) DO NOTHING` | At-least-once delivery with idempotent writes, so effectively-once |
+| `price_aggregates_1m` | JDBC upsert on `(crypto_id, window_start)` | Effectively-once |
+| `price_alerts` | JDBC, unique `(crypto_id, window_start, alert_type)`, `DO NOTHING` | Effectively-once |
+| Kafka `crypto-alerts` | `KafkaSink` `EXACTLY_ONCE`, `setTransactionalIdPrefix("crypto-alerts")`, producer property `transaction.timeout.ms=900000` | Exactly-once for `read_committed` consumers; visibility is delayed by up to one checkpoint interval |
+| Redis `crypto:{SYM}:latest` + Pub/Sub `crypto:updates` | `SETEX` + `PUBLISH` | At-least-once. The overwrite is idempotent; clients dedupe on `window_start` |
+
+### Known limitations
+
+- The producer uses `kafka-python-ng`, which has no idempotent producer; a retried send can duplicate a trade in Kafka. Flink's `DedupByTradeId` and the `raw_trades` primary key remove those duplicates. Upgrade path: `confluent-kafka` with `enable.idempotence=true`.
+- A minute with no trades produces no candle (no gap-filling yet).
+- `/api/v1/trending` uses real-time aggregation (hourly buckets that include the current hour so far), but the 24h-ago comparison bucket still needs about 24-25 hours of candle history before results appear.
+- A stateless restart (`deploy-flink-fresh`, or a job started without a savepoint) re-aggregates the in-progress minute from partial trades and resets the anomaly detector's 30-minute warm-up; the affected candle can be rebuilt from `raw_trades`.
+- Any error frame from Coinbase stops the producer (by design for rejected subscriptions); rerun it after checking the log.
+- Single Kafka broker and single TaskManager: this is a local development topology.
 
 ---
 
 ## Prerequisites
 
 - Docker Desktop with Compose (≥ v2)
-- Python 3.11+
+- Python 3.11–3.13 (3.12 recommended)
 - Node.js 20+ (only needed if you run the Next.js terminal outside Docker)
 - Java 11 or 17 + Maven (only needed to rebuild the Flink JAR)
 
@@ -103,11 +104,7 @@ COINGECKO_API_KEY=           # optional, free-tier demo key
 ### 2. Install Python dependencies
 
 ```bash
-python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt \
-            -r requirements-api.txt \
-            -r requirements-dashboard.txt
+python3.12 -m venv venv && venv/bin/pip install -r requirements.txt -r requirements-api.txt
 ```
 
 ### 3. Start the pipeline
@@ -116,7 +113,7 @@ pip install -r requirements.txt \
 bash scripts/start_pipeline.sh
 ```
 
-This script: checks dependencies → loads `.env` → runs `docker-compose up -d` → waits for Kafka, PostgreSQL, and Redis to be healthy → starts the producer in the background.
+This script: checks dependencies → loads `.env` → runs `docker-compose up -d` → waits for Kafka, PostgreSQL, and Redis to be healthy → creates the `crypto-trades` Kafka topic and starts the Coinbase producer in the background.
 
 ### 4. Deploy the Flink job
 
@@ -150,11 +147,8 @@ make deploy-flink
 # In separate terminals:
 make api           # FastAPI on :8000
 
-# Primary UI — Next.js 16 terminal:
+# Next.js terminal:
 cd frontend && npm install && npm run dev   # :3000
-
-# Interim ops dashboard — Streamlit:
-make dashboard     # :8501
 ```
 
 To run the Next.js terminal containerised instead of via `npm run dev`:
@@ -164,9 +158,10 @@ docker compose up -d --build frontend
 ```
 
 > **Note:** if you've already initialised the Postgres volume on an older
-> version of this project (BTC/ETH only), the expanded `cryptocurrencies`
-> seed in `configs/init-db.sql` won't re-run. Either insert the new symbols
-> by hand or run `scripts/teardown.sh` to drop the volume and re-init.
+> version of this project, the schema won't re-run automatically (new
+> trade-level tables, continuous aggregates, expanded `cryptocurrencies`
+> seed in `configs/init-db.sql`). Run `scripts/teardown.sh` once to drop
+> the volume and re-initialise it.
 
 ### 6. Stop / teardown
 
@@ -182,7 +177,6 @@ bash scripts/teardown.sh         # removes all containers and volumes (destructi
 | Service | URL | Role | Notes |
 |---|---|---|---|
 | **Next.js Terminal** | http://localhost:3000 | **Primary UI** | Public-facing market terminal — live ticker, global stats, market screener, per-coin detail, charts, alerts |
-| Streamlit Dashboard | http://localhost:8501 | Interim / ops | Internal ops view — quick charts, alerts, CSV export |
 | FastAPI docs | http://localhost:8000/docs | Backend | Interactive Swagger UI |
 | Flink Web UI | http://localhost:8082 | Backend | Job graph, checkpoints, metrics |
 | Kafka UI | http://localhost:8081 | Backend | Topic browser, consumer groups |
@@ -301,20 +295,17 @@ GET  /api/v1/historical/{symbol}/latest   Most recent persisted candle
 GET  /api/v1/alerts                       Recent anomaly alerts (all symbols)
 GET  /api/v1/alerts/{symbol}              Alerts for one symbol
 
-GET  /api/v1/symbols                      Supported symbols + display metadata
-GET  /api/v1/trending                     Top movers by 24h % change
+GET  /api/v1/symbols                      Tracked symbols (cryptocurrencies table)
+GET  /api/v1/trending                     Top movers by 24h % change (candles_1h)
 
 WS   /ws/prices/{symbol}                  Real-time stream via Redis Pub/Sub
-                                          symbol ∈ SUPPORTED_SYMBOLS | "ALL"
+                                          symbol ∈ tracked symbols | "ALL"
 ```
 
-The supported-symbol allowlist lives in `src/api/config.py::SUPPORTED_SYMBOLS`
-and must stay in sync with `src/config.py::CRYPTO_IDS` (producer),
-`configs/init-db.sql` (DB seed), and
-`src/flink_jobs/.../CryptoIdMapper.java` (Flink crypto_id map).
+Symbols come from the `cryptocurrencies` table, read by the producer and API at startup and resolved by Flink inside its SQL. Add a symbol by inserting a row (with its `coinbase_product`) and restarting the producer and API.
 The frontend never hard-codes the list — it reads `/api/v1/symbols` at runtime.
 
-All responses include `X-Process-Time-Ms` (middleware) and `X-Request-ID` (UUID4, for tracing).
+All responses include `X-Process-Time-Ms` (middleware) and `X-Request-ID` (UUID4, for tracing). `/api/v1/latest/*` is Redis-first with a TimescaleDB fallback on a cache miss, a corrupt cache entry, or a Redis outage; which one served the request is reported in the `X-Data-Source: redis|postgres` response header.
 
 ---
 
@@ -333,7 +324,7 @@ Copy `.env.example` to `.env`. Required variables:
 | `REDIS_HOST` | `localhost` | `redis` when inside Docker network |
 | `REDIS_PORT` | `6379` | |
 | `KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | `kafka:29092` inside Docker |
-| `COINGECKO_API_KEY` | _(unset)_ | Optional; increases CoinGecko rate limits |
+| `KAFKA_TRADES_TOPIC` | `crypto-trades` | Producer topic (older .env files may still say KAFKA_TOPIC; it is ignored) |
 | `LOG_LEVEL` | `INFO` | |
 
 Frontend-specific variables live in `frontend/.env.local` — see [Frontend environment](#frontend-environment).
@@ -345,15 +336,16 @@ Frontend-specific variables live in `frontend/.env.local` — see [Frontend envi
 ```bash
 make setup-all      # Create venv and install all dependencies
 make start          # docker-compose up (full mode)
-make stop           # docker-compose stop
+make stop           # docker-compose down
 make status         # Container status
 make health         # Service health checks
 make logs           # Flink TaskManager logs
+make topics         # Create Kafka topics (idempotent)
 make producer       # Run Python producer
 make api            # Run FastAPI (uvicorn)
-make dashboard      # Run Streamlit (interim ops view)
+make test           # Run Python and Flink unit tests
 make build-flink    # mvn clean package
-make deploy-flink   # Build + submit Flink job
+make deploy-flink   # Copy the built JAR and submit (cancels a running job first); run `make build-flink` first
 make stop-flink     # Cancel running Flink job
 make clean          # Remove containers, volumes, build artifacts
 ```
@@ -381,21 +373,19 @@ The Next.js terminal is driven from `frontend/` using standard npm scripts (`npm
 │   │   ├── endpoints/                            # latest, historical, alerts, symbols, websocket
 │   │   ├── middleware.py                         # Timing (perf_counter) + request tracing (UUID4)
 │   │   └── main.py
-│   ├── consumers/                                # (Reserved for future consumers)
-│   ├── dashboard/                                # Streamlit application (interim ops view)
 │   ├── flink_jobs/                               # Java Maven project
 │   │   └── src/main/java/com/crypto/analyzer/
-│   │       ├── CryptoPriceAggregator.java        # Main job: OHLC + sinks + checkpointing
+│   │       ├── CryptoPriceAggregator.java        # Main job: dedup + OHLCV + anomaly detection + Kafka alert sink
 │   │       ├── functions/
-│   │       │   ├── AnomalyDetector.java          # KeyedProcessFunction, State TTL
-│   │       │   ├── OHLCAggregator.java
-│   │       │   └── OHLCWindowFunction.java
+│   │       │   ├── CandleAggregator.java         # 1-min OHLCV + VWAP aggregation
+│   │       │   ├── DedupByTradeId.java           # Keyed last-seen trade_id dedup
+│   │       │   └── ZScoreAnomalyDetector.java    # EWMA z-score anomaly detector, State TTL
 │   │       ├── models/
-│   │       ├── sinks/
-│   │       │   └── RedisSinkFunction.java
-│   │       └── utils/CryptoIdMapper.java         # Symbol → CoinGecko id map (8 symbols)
+│   │       └── sinks/
+│   │           └── JdbcSinks.java                # The three TimescaleDB sinks (raw_trades, candles, alerts)
 │   └── producers/
-│       └── crypto_price_producer.py              # tenacity retry, Kafka producer
+│       └── coinbase_trades_producer.py           # Coinbase WebSocket trade producer
+├── tests/                                        # Python unit tests (producers, API, symbols)
 ├── frontend/                                     # Next.js 16 terminal (primary UI)
 │   ├── app/
 │   │   ├── layout.tsx                            # Root layout + Geist fonts + Providers
@@ -423,9 +413,8 @@ The Next.js terminal is driven from `frontend/` using standard npm scripts (`npm
 │   ├── postcss.config.mjs
 │   └── package.json
 ├── docker-compose.yml                            # All services incl. `frontend`
-├── requirements.txt                              # Core + tenacity
-├── requirements-api.txt                          # FastAPI, asyncpg, redis
-└── requirements-dashboard.txt                    # Streamlit, plotly, streamlit-autorefresh
+├── requirements.txt                              # Producer + shared + test deps
+└── requirements-api.txt                          # FastAPI, uvicorn, redis, pydantic-settings
 ```
 
 ---

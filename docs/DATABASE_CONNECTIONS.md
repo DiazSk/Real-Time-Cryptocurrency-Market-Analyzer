@@ -141,7 +141,7 @@ FLUSHALL         # Clear all data (dangerous!)
 SELECT 
     'cryptocurrencies' as table_name, COUNT(*) as count FROM cryptocurrencies
 UNION ALL
-SELECT 'raw_price_data', COUNT(*) FROM raw_price_data
+SELECT 'raw_trades', COUNT(*) FROM raw_trades
 UNION ALL
 SELECT 'price_aggregates_1m', COUNT(*) FROM price_aggregates_1m;
 
@@ -152,17 +152,20 @@ SELECT pg_size_pretty(pg_database_size('crypto_db'));
 ### **View Latest Data**
 
 ```sql
--- Latest prices
-SELECT * FROM v_latest_prices;
+-- Latest 1-minute candle per symbol
+SELECT DISTINCT ON (crypto_id) *
+FROM price_aggregates_1m
+ORDER BY crypto_id, window_start DESC;
 
--- Last 10 price updates for Bitcoin
-SELECT * FROM raw_price_data 
-WHERE crypto_id = 1 
-ORDER BY timestamp DESC 
+-- Last 10 raw trades for Bitcoin (crypto_id = 1)
+SELECT * FROM raw_trades
+WHERE crypto_id = 1
+ORDER BY event_time DESC
 LIMIT 10;
 
--- 24-hour statistics
-SELECT * FROM v_price_stats_24h;
+-- 24-hour OHLCV rollup
+SELECT * FROM candles_1h
+WHERE bucket > now() - INTERVAL '24 hours';
 ```
 
 ### **Monitoring Queries**

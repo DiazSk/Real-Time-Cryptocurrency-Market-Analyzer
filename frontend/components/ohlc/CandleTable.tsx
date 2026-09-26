@@ -43,7 +43,7 @@ export function CandleTable({ symbol }: { symbol: string }) {
                 <th className="px-2 py-2 text-right font-medium">High</th>
                 <th className="px-2 py-2 text-right font-medium">Low</th>
                 <th className="px-2 py-2 text-right font-medium">Close</th>
-                <th className="px-4 py-2 text-right font-medium">Vol</th>
+                <th className="px-4 py-2 text-right font-medium">Vol (USD)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[color:var(--color-border)]">
@@ -59,7 +59,7 @@ export function CandleTable({ symbol }: { symbol: string }) {
                       {fmtUsd(c.close_price)}
                     </td>
                     <td className="px-4 py-1.5 text-right text-muted-foreground">
-                      {fmtVolume(c.volume_sum)}
+                      {fmtVolume(c.quote_volume)}
                     </td>
                   </tr>
                 );

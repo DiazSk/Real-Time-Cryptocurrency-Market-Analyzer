@@ -101,7 +101,7 @@ const LiveCoinDetail = ({
         ) : (
           <div className="rounded-lg bg-dark-500 p-6 text-sm text-purple-100">
             Real-time price-spike/drop alerts are only available for tracked
-            symbols (BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, MATIC).
+            symbols (BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, POL).
           </div>
         )}
       </div>

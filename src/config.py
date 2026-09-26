@@ -1,184 +1,48 @@
 """
-Configuration file for Real-Time Cryptocurrency Market Analyzer
+Producer configuration. The API has its own pydantic settings in src/api/config.py.
 """
 
 import os
+
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
 load_dotenv()
 
 # ============================================
-# Kafka Configuration
+# Kafka
 # ============================================
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-KAFKA_TOPIC_CRYPTO_PRICES = os.getenv("KAFKA_TOPIC", "crypto-prices")
-KAFKA_CONSUMER_GROUP = os.getenv("KAFKA_CONSUMER_GROUP", "crypto-analyzer-group")
-KAFKA_SECURITY_PROTOCOL = os.getenv("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT")
+# A new variable name on purpose: older .env files set KAFKA_TOPIC=crypto-prices.
+KAFKA_TOPIC_TRADES = os.getenv("KAFKA_TRADES_TOPIC", "crypto-trades")
 
-# Producer Configuration
 KAFKA_PRODUCER_CONFIG = {
     "bootstrap_servers": KAFKA_BOOTSTRAP_SERVERS,
-    "value_serializer": lambda v: v.encode("utf-8"),  # JSON string serialization
-    "key_serializer": lambda k: k.encode("utf-8") if k else None,
-    "acks": "all",  # Wait for all replicas to acknowledge (strongest durability)
-    "retries": 3,  # Retry failed sends
-    "max_in_flight_requests_per_connection": 1,  # Ensure ordering
-    "compression_type": "gzip",  # Compress messages
-}
-
-# Consumer Configuration
-KAFKA_CONSUMER_CONFIG = {
-    "bootstrap_servers": KAFKA_BOOTSTRAP_SERVERS,
-    "group_id": KAFKA_CONSUMER_GROUP,
-    "auto_offset_reset": "earliest",  # Start from beginning if no offset
-    "enable_auto_commit": False,  # Manual commit for exactly-once
-    "value_deserializer": lambda v: v.decode("utf-8"),
-    "key_deserializer": lambda k: k.decode("utf-8") if k else None,
+    "key_serializer": lambda k: k.encode("utf-8"),
+    "value_serializer": lambda v: v.encode("utf-8"),
+    "acks": "all",
+    "retries": 5,
+    # One in-flight request keeps per-partition order even when a send is retried.
+    # A retry duplicate therefore lands right after the original, which is what
+    # lets Flink's DedupByTradeId drop it with a single last-seen trade_id per symbol.
+    "max_in_flight_requests_per_connection": 1,
+    "linger_ms": 20,
+    "compression_type": "gzip",
 }
 
 # ============================================
-# CoinGecko API Configuration
+# Coinbase Exchange public market data
 # ============================================
-COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
-COINGECKO_API_KEY = os.getenv(
-    "COINGECKO_API_KEY", None
-)  # Optional, for higher rate limits
+COINBASE_WS_URL = os.getenv("COINBASE_WS_URL", "wss://ws-feed.exchange.coinbase.com")
 
-# Cryptocurrency IDs (CoinGecko format)
-# Keep aligned with src/api/config.py::SUPPORTED_SYMBOLS so the producer,
-# API allowlist, and frontend picker stay in sync.
-CRYPTO_IDS = {
-    "BTC":   "bitcoin",
-    "ETH":   "ethereum",
-    "SOL":   "solana",
-    "XRP":   "ripple",
-    "ADA":   "cardano",
-    "DOGE":  "dogecoin",
-    "AVAX":  "avalanche-2",
-    "MATIC": "matic-network",
+# ============================================
+# PostgreSQL (symbol registry)
+# ============================================
+POSTGRES_CONNECT_KWARGS = {
+    "host": os.getenv("POSTGRES_HOST", "localhost"),
+    "port": int(os.getenv("POSTGRES_PORT", "5433")),
+    "database": os.getenv("POSTGRES_DB", "crypto_db"),
+    "user": os.getenv("POSTGRES_USER", "crypto_user"),
+    "password": os.getenv("POSTGRES_PASSWORD", "crypto_pass"),
 }
 
-# API Request Configuration
-API_REQUEST_TIMEOUT = 10  # seconds
-API_RATE_LIMIT_DELAY = 6  # seconds between requests (10 requests/minute for free tier)
-API_MAX_RETRIES = 3
-
-# ============================================
-# PostgreSQL Configuration
-# ============================================
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
-POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5433")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "crypto_db")
-POSTGRES_USER = os.getenv("POSTGRES_USER", "crypto_user")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "crypto_pass")
-
-# Connection String
-POSTGRES_CONNECTION_STRING = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
-
-# ============================================
-# Redis Configuration
-# ============================================
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
-REDIS_DB = int(os.getenv("REDIS_DB", "0"))
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
-
-# Redis Key Patterns
-REDIS_KEY_LATEST_PRICE = "crypto:{symbol}:latest"
-REDIS_KEY_PRICE_HISTORY = "crypto:{symbol}:history"
-REDIS_KEY_STATS_24H = "crypto:{symbol}:stats:24h"
-
-# ============================================
-# Application Configuration
-# ============================================
-# Producer Settings
-# Both are env-driven so dev and prod don't share a single hard-coded value.
-# Default for RUN_DURATION is 0 (run forever); set PRODUCER_RUN_DURATION=300
-# in your shell or .env when you want the old "stop after 5 min" smoke-test behaviour.
-PRODUCER_FETCH_INTERVAL = int(os.getenv("PRODUCER_FETCH_INTERVAL", "5"))  # seconds between price fetches
-PRODUCER_RUN_DURATION = int(os.getenv("PRODUCER_RUN_DURATION", "0"))  # 0 = run until killed
-
-# Logging
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-LOG_FORMAT = "json"  # 'json' or 'console'
-
-# ============================================
-# Data Validation
-# ============================================
-# Price change thresholds for anomaly detection
-MAX_PRICE_CHANGE_PERCENT = 50  # Alert if price changes > 50% in one update
-MIN_PRICE_VALUE = 0.0001  # Minimum valid price (prevent zero/negative)
-MAX_PRICE_VALUE = 1000000  # Maximum valid price (sanity check)
-
-# ============================================
-# Development vs Production
-# ============================================
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
-DEBUG_MODE = ENVIRONMENT == "development"
-
-# ============================================
-# Feature Flags
-# ============================================
-ENABLE_PRICE_VALIDATION = True  # Validate price data before producing
-ENABLE_DUPLICATE_DETECTION = True  # Check for duplicate messages
-ENABLE_REDIS_CACHING = True  # Cache latest prices to Redis
-ENABLE_METRICS_LOGGING = True  # Log performance metrics
-
-
-# ============================================
-# Helper Functions
-# ============================================
-def get_kafka_topic():
-    """Get the Kafka topic name for cryptocurrency prices"""
-    return KAFKA_TOPIC_CRYPTO_PRICES
-
-
-def get_crypto_symbols():
-    """Get list of cryptocurrency symbols to track"""
-    return list(CRYPTO_IDS.keys())
-
-
-def get_coingecko_id(symbol):
-    """Get CoinGecko API ID for a cryptocurrency symbol"""
-    return CRYPTO_IDS.get(symbol.upper())
-
-
-def validate_price(price):
-    """Validate if a price value is within acceptable range"""
-    return MIN_PRICE_VALUE <= price <= MAX_PRICE_VALUE
-
-
-def format_redis_key(pattern, symbol):
-    """Format Redis key with cryptocurrency symbol"""
-    return pattern.format(symbol=symbol.upper())
-
-
-# ============================================
-# Configuration Validation
-# ============================================
-def validate_config():
-    """Validate configuration on startup"""
-    issues = []
-
-    if not KAFKA_BOOTSTRAP_SERVERS:
-        issues.append("KAFKA_BOOTSTRAP_SERVERS not configured")
-
-    if not POSTGRES_HOST:
-        issues.append("POSTGRES_HOST not configured")
-
-    if not REDIS_HOST:
-        issues.append("REDIS_HOST not configured")
-
-    if not CRYPTO_IDS:
-        issues.append("No cryptocurrencies configured in CRYPTO_IDS")
-
-    if issues:
-        raise ValueError(f"Configuration validation failed: {', '.join(issues)}")
-
-    return True
-
-
-# Validate on import
-if __name__ != "__main__":
-    validate_config()

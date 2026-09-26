@@ -9,8 +9,10 @@ export const candleSchema = z.object({
   high: z.coerce.number(),
   low: z.coerce.number(),
   close: z.coerce.number(),
-  volume_sum: z.coerce.number(),
-  event_count: z.number(),
+  vwap: z.coerce.number(),
+  volume: z.coerce.number(),
+  quote_volume: z.coerce.number(),
+  trade_count: z.number(),
 });
 export type Candle = z.infer<typeof candleSchema>;
 
@@ -29,9 +31,10 @@ export const historicalCandleSchema = z.object({
   high_price: z.coerce.number(),
   low_price: z.coerce.number(),
   close_price: z.coerce.number(),
-  avg_price: z.coerce.number(),
-  volume_sum: z.coerce.number().nullable(),
-  trade_count: z.number().nullable(),
+  vwap: z.coerce.number(),
+  volume: z.coerce.number(),
+  quote_volume: z.coerce.number(),
+  trade_count: z.number(),
 });
 export type HistoricalCandle = z.infer<typeof historicalCandleSchema>;
 
@@ -52,12 +55,14 @@ export type Stats = z.infer<typeof statsSchema>;
 export const alertSchema = z.object({
   symbol: z.string(),
   alert_type: z.enum(["PRICE_SPIKE", "PRICE_DROP"]),
+  severity: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  z_score: z.number(),
   price_change_pct: z.number(),
   old_price: z.number(),
   new_price: z.number(),
-  window_start: z.string().nullable(),
-  window_end: z.string().nullable(),
-  created_at: z.string().nullable(),
+  window_start: z.string(),
+  window_end: z.string(),
+  created_at: z.string(),
 });
 export type Alert = z.infer<typeof alertSchema>;
 

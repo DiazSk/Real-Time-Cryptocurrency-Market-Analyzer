@@ -1,11 +1,8 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 
-# Async database drivers — psycopg2 is intentionally absent; it blocks the event loop.
-asyncpg==0.30.0                  # Async PostgreSQL driver
 redis==5.2.1                     # Includes redis.asyncio for non-blocking Redis I/O
 
-pydantic==2.10.3
 pydantic-settings==2.6.1
 python-multipart==0.0.20
 python-dotenv==1.0.1

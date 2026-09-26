@@ -17,7 +17,7 @@ if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
 fi
 
 echo "Stopping producer (if running)..."
-pkill -f "src.producers.crypto_price_producer" 2>/dev/null || true
+pkill -f "src.producers.coinbase_trades_producer" 2>/dev/null || true
 
 echo "Removing containers, networks, and volumes..."
 docker-compose down -v --remove-orphans

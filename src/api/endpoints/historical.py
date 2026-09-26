@@ -5,12 +5,12 @@ Uses asyncpg natively so queries do not block the ASGI event loop.
 Per-request timing is handled by TimingMiddleware, not inline here.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Response
+from fastapi import APIRouter, HTTPException, Depends, Query, Response, Request
 from ..models import HistoricalPriceResponse, ErrorResponse
 from ..database import get_db
-from ..config import settings
+from ..registry import require_symbol, symbols_of
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncpg
 import logging
 
@@ -22,15 +22,11 @@ router = APIRouter(
 )
 
 
-def _validate_symbol(symbol: str) -> str:
-    """Normalise + validate against the supported-symbol allowlist."""
-    symbol = symbol.upper()
-    if symbol not in settings.SUPPORTED_SYMBOLS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid symbol: {symbol}. Supported: {', '.join(settings.SUPPORTED_SYMBOLS)}"
-        )
-    return symbol
+def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """Query params without an offset are treated as UTC; the columns are TIMESTAMPTZ."""
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
 @router.get(
@@ -45,6 +41,7 @@ def _validate_symbol(symbol: str) -> str:
                 "Supports date range filtering, ordering, and pagination."
 )
 async def get_historical_prices(
+    request: Request,
     response: Response,
     symbol: str,
     start_time: Optional[datetime] = Query(
@@ -57,15 +54,13 @@ async def get_historical_prices(
     ),
     limit: int = Query(100, ge=1, le=1000, description="Maximum records to return (1-1000)"),
     offset: int = Query(0, ge=0, description="Records to skip for pagination"),
-    order_by: str = Query("desc", regex="^(asc|desc)$", description="Sort order"),
+    order_by: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     conn: asyncpg.Connection = Depends(get_db)
 ) -> List[HistoricalPriceResponse]:
-    symbol = _validate_symbol(symbol)
+    symbol = require_symbol(symbols_of(request), symbol)
 
-    if end_time is None:
-        end_time = datetime.utcnow()
-    if start_time is None:
-        start_time = end_time - timedelta(hours=24)
+    end_time = _as_utc(end_time) or datetime.now(timezone.utc)
+    start_time = _as_utc(start_time) or end_time - timedelta(hours=24)
 
     if start_time >= end_time:
         raise HTTPException(status_code=400, detail="start_time must be before end_time")
@@ -88,8 +83,9 @@ async def get_historical_prices(
                 p.high_price,
                 p.low_price,
                 p.close_price,
-                p.avg_price,
-                p.volume_sum,
+                p.vwap,
+                p.volume,
+                p.quote_volume,
                 p.trade_count
             FROM price_aggregates_1m p
             JOIN cryptocurrencies c ON p.crypto_id = c.id
@@ -132,8 +128,9 @@ async def get_historical_prices(
                 high_price=row["high_price"],
                 low_price=row["low_price"],
                 close_price=row["close_price"],
-                avg_price=row["avg_price"],
-                volume_sum=row["volume_sum"],
+                vwap=row["vwap"],
+                volume=row["volume"],
+                quote_volume=row["quote_volume"],
                 trade_count=row["trade_count"]
             )
             for row in rows
@@ -155,25 +152,24 @@ async def get_historical_prices(
     description="Returns min, max, avg prices for a given time range"
 )
 async def get_price_stats(
+    request: Request,
     symbol: str,
     start_time: Optional[datetime] = Query(None),
     end_time: Optional[datetime] = Query(None),
     conn: asyncpg.Connection = Depends(get_db)
 ):
-    symbol = _validate_symbol(symbol)
+    symbol = require_symbol(symbols_of(request), symbol)
 
-    if end_time is None:
-        end_time = datetime.utcnow()
-    if start_time is None:
-        start_time = end_time - timedelta(hours=24)
+    end_time = _as_utc(end_time) or datetime.now(timezone.utc)
+    start_time = _as_utc(start_time) or end_time - timedelta(hours=24)
 
     try:
         sql = """
             SELECT
                 MIN(p.low_price)  AS lowest,
                 MAX(p.high_price) AS highest,
-                AVG(p.avg_price)  AS average,
-                SUM(p.volume_sum) AS total_volume,
+                SUM(p.quote_volume) / NULLIF(SUM(p.volume), 0) AS average,       -- VWAP over the range
+                SUM(p.quote_volume)                            AS total_volume,  -- USD
                 COUNT(*)          AS candle_count
             FROM price_aggregates_1m p
             JOIN cryptocurrencies c ON p.crypto_id = c.id
@@ -215,10 +211,11 @@ async def get_price_stats(
     description="Fetches the most recent 1-minute candle from PostgreSQL"
 )
 async def get_latest_historical(
+    request: Request,
     symbol: str,
     conn: asyncpg.Connection = Depends(get_db)
 ) -> HistoricalPriceResponse:
-    symbol = _validate_symbol(symbol)
+    symbol = require_symbol(symbols_of(request), symbol)
 
     try:
         sql = """
@@ -230,8 +227,9 @@ async def get_latest_historical(
                 p.high_price,
                 p.low_price,
                 p.close_price,
-                p.avg_price,
-                p.volume_sum,
+                p.vwap,
+                p.volume,
+                p.quote_volume,
                 p.trade_count
             FROM price_aggregates_1m p
             JOIN cryptocurrencies c ON p.crypto_id = c.id
@@ -252,8 +250,9 @@ async def get_latest_historical(
             high_price=row["high_price"],
             low_price=row["low_price"],
             close_price=row["close_price"],
-            avg_price=row["avg_price"],
-            volume_sum=row["volume_sum"],
+            vwap=row["vwap"],
+            volume=row["volume"],
+            quote_volume=row["quote_volume"],
             trade_count=row["trade_count"]
         )
 

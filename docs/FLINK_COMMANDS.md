@@ -248,8 +248,8 @@ docker exec flink-jobmanager flink run /opt/flink/crypto-analyzer.jar
 ### **1. Simple Price Aggregation**
 
 ```java
-DataStream<PriceUpdate> priceStream = env
-    .addSource(new FlinkKafkaConsumer<>("crypto-prices", ...))
+DataStream<Trade> priceStream = env
+    .addSource(new FlinkKafkaConsumer<>("crypto-trades", ...))
     .keyBy(price -> price.getCryptoId())
     .window(TumblingEventTimeWindows.of(Time.minutes(1)))
     .aggregate(new AverageAggregator());
