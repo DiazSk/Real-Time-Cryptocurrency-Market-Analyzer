@@ -24,6 +24,7 @@ class ZScoreAnomalyDetectorTest {
     private KeyedOneInputStreamOperatorTestHarness<String, Candle, PriceAlert> harness;
     private BigDecimal lastClose;
     private int minute;
+    private Candle lastCandle;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -57,7 +58,14 @@ class ZScoreAnomalyDetectorTest {
         c.tradeCount = trades;
         harness.processElement(c, c.windowEnd.toEpochMilli() - 1);
         lastClose = close;
+        lastCandle = c;
         minute++;
+    }
+
+    /** Re-sends the last candle fed via {@link #feed}, e.g. to simulate a Flink redeploy
+     * re-processing the same window. */
+    private void resendLast() throws Exception {
+        harness.processElement(lastCandle, lastCandle.windowEnd.toEpochMilli() - 1);
     }
 
     /** One anchoring candle, then n calm returns alternating +/-step. */
@@ -151,6 +159,15 @@ class ZScoreAnomalyDetectorTest {
         assertEquals("PRICE_SPIKE", a.alertType);
         assertTrue(a.zScore < -4, "z was " + a.zScore);
         assertTrue(a.newPrice.compareTo(before) > 0, "newPrice " + a.newPrice + " should exceed oldPrice " + before);
+    }
+
+    @Test
+    void sameWindowTwiceEmitsOneAlert() throws Exception {
+        warmUp(40, 0.001);
+        feed(0.05, 10);
+        assertEquals(1, alerts().size());
+        resendLast();
+        assertEquals(1, alerts().size(), "reprocessing the same window must not duplicate the alert");
     }
 
     @Test

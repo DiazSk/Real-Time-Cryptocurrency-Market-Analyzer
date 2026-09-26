@@ -30,7 +30,7 @@ endif
 # Fallback if venv doesn't exist
 PYTHON_CMD = $(shell if [ -f "$(PYTHON)" ]; then echo "$(PYTHON)"; else echo "python"; fi)
 
-.PHONY: help setup setup-api setup-all start stop status health logs build-flink deploy-flink stop-flink topics producer api test clean
+.PHONY: help setup setup-api setup-all start stop status health logs build-flink deploy-flink deploy-flink-fresh stop-flink topics producer api test clean
 
 help: ## Show this help message
 	@echo ""
@@ -49,7 +49,7 @@ help: ## Show this help message
 	@grep -E '^(topics|producer|api|test):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Flink Commands:"
-	@grep -E '^(build-flink|deploy-flink|stop-flink):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^(build-flink|deploy-flink|deploy-flink-fresh|stop-flink):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Maintenance Commands:"
 	@grep -E '^clean:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -60,7 +60,7 @@ help: ## Show this help message
 # ============================================
 
 setup: ## Create venv and install base dependencies
-	python -m venv venv
+	python3.12 -m venv venv
 	$(PIP) install --upgrade pip
 	$(PIP) install -r requirements.txt
 
@@ -137,18 +137,15 @@ test: ## Run Python and Flink unit tests
 build-flink: ## Compile the Flink Java Job (requires Maven + Java 11/17)
 	cd src/flink_jobs && mvn clean package -DskipTests
 
-deploy-flink: ## Build and Submit the Flink Job (Cancels old job if running)
+deploy-flink: ## Build and Submit the Flink Job (stop-with-savepoint + resume if one is running)
 	@echo "Copying JAR to JobManager..."
 	docker cp $(JAR_PATH) $(FLINK_JM):/opt/flink/
-	@echo "Checking for running jobs..."
-	@JOB_ID=$$(docker exec $(FLINK_JM) flink list | grep 'RUNNING' | awk '{print $$4}'); \
-	if [ ! -z "$$JOB_ID" ]; then \
-		echo "Cancelling running job: $$JOB_ID"; \
-		docker exec $(FLINK_JM) flink cancel $$JOB_ID; \
-		sleep 5; \
-	fi
-	@echo "Submitting new job..."
-	docker exec $(FLINK_JM) flink run -d $(DOCKER_JAR_PATH)
+	FLINK_JM=$(FLINK_JM) DOCKER_JAR_PATH=$(DOCKER_JAR_PATH) bash scripts/deploy_flink.sh
+
+deploy-flink-fresh: ## Build and Submit the Flink Job (stateless cancel + run; state is discarded)
+	@echo "Copying JAR to JobManager..."
+	docker cp $(JAR_PATH) $(FLINK_JM):/opt/flink/
+	FLINK_JM=$(FLINK_JM) DOCKER_JAR_PATH=$(DOCKER_JAR_PATH) bash scripts/deploy_flink.sh --fresh
 
 stop-flink: ## Cancel any running Flink jobs
 	@JOB_ID=$$(docker exec $(FLINK_JM) flink list | grep 'RUNNING' | awk '{print $$4}'); \

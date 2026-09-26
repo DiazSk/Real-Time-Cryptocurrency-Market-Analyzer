@@ -18,10 +18,16 @@ taskmanager.bind-host: 0.0.0.0
 taskmanager.host: taskmanager
 taskmanager.memory.process.size: 1728m
 taskmanager.memory.flink.size: 1280m
+# Must be >= setParallelism(...) in CryptoPriceAggregator.java
+# (FLINK_PARALLELISM env, default 4 — matches the crypto-trades Kafka partition count).
+# If you bump that constant, bump these too.
+taskmanager.numberOfTaskSlots: 4
 
 # ==============================================================================
 # Parallelism Configuration
 # ==============================================================================
+
+parallelism.default: 4
 
 # ==============================================================================
 # High Availability Configuration (Disabled for Development)
@@ -137,12 +143,3 @@ state.backend.rocksdb.block.cache-size: 256m
 
 blob.server.port: 6124
 query.server.port: 6125
-
-jobmanager.rpc.address: jobmanager
-jobmanager.memory.process.size: 2048m
-taskmanager.memory.process.size: 1728m
-# Must be >= setParallelism(...) in CryptoPriceAggregator.java
-# (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
-# If you bump that constant, bump these too.
-taskmanager.numberOfTaskSlots: 4
-parallelism.default: 4

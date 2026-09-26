@@ -111,9 +111,11 @@ public class CryptoPriceAggregator {
 
         DataStream<Trade> trades = env
                 .fromSource(source, watermarks, "Coinbase Trades")
+                .uid("coinbase-trades-source")
                 .keyBy(Trade::getSymbol)
                 .process(new DedupByTradeId())
-                .name("Dedup by trade_id");
+                .name("Dedup by trade_id")
+                .uid("dedup-by-trade-id");
 
         JdbcConnectionOptions pg = new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
                 .withUrl(POSTGRES_URL)
@@ -122,28 +124,30 @@ public class CryptoPriceAggregator {
                 .withPassword(POSTGRES_PASSWORD)
                 .build();
 
-        trades.addSink(JdbcSinks.rawTrades(pg)).name("raw_trades Sink");
+        trades.addSink(JdbcSinks.rawTrades(pg)).name("raw_trades Sink").uid("sink-raw-trades");
 
         SingleOutputStreamOperator<Candle> candles = trades
                 .keyBy(Trade::getSymbol)
                 .window(TumblingEventTimeWindows.of(Time.minutes(1)))
                 .sideOutputLateData(LATE_TRADES)
                 .aggregate(new CandleAggregator(), new CandleWindowFunction())
-                .name("1-Min OHLCV");
+                .name("1-Min OHLCV")
+                .uid("ohlcv-1m-window");
 
         candles.getSideOutput(LATE_TRADES)
-                .map(new LateTradeCounter()).name("Count Late Trades")
-                .addSink(new DiscardingSink<>()).name("Discard Late Trades");
+                .map(new LateTradeCounter()).name("Count Late Trades").uid("late-trade-counter")
+                .addSink(new DiscardingSink<>()).name("Discard Late Trades").uid("discard-late-trades");
 
-        candles.addSink(JdbcSinks.candles(pg)).name("price_aggregates_1m Sink");
-        candles.addSink(new RedisSinkFunction(REDIS_HOST, REDIS_PORT, 300)).name("Redis Latest + Pub/Sub");
+        candles.addSink(JdbcSinks.candles(pg)).name("price_aggregates_1m Sink").uid("sink-candles");
+        candles.addSink(new RedisSinkFunction(REDIS_HOST, REDIS_PORT, 300)).name("Redis Latest + Pub/Sub").uid("sink-redis");
 
         DataStream<PriceAlert> alerts = candles
                 .keyBy(Candle::getSymbol)
                 .process(new ZScoreAnomalyDetector())
-                .name("Z-Score Anomaly Detector");
+                .name("Z-Score Anomaly Detector")
+                .uid("zscore-detector");
 
-        alerts.addSink(JdbcSinks.alerts(pg)).name("price_alerts Sink");
+        alerts.addSink(JdbcSinks.alerts(pg)).name("price_alerts Sink").uid("sink-alerts");
 
         KafkaSink<PriceAlert> alertSink = KafkaSink.<PriceAlert>builder()
                 .setBootstrapServers(KAFKA_BOOTSTRAP_SERVERS)
@@ -159,7 +163,7 @@ public class CryptoPriceAggregator {
                 .setProperty("transaction.timeout.ms", "900000")
                 .build();
 
-        alerts.sinkTo(alertSink).name("crypto-alerts Kafka Sink (exactly-once)");
+        alerts.sinkTo(alertSink).name("crypto-alerts Kafka Sink (exactly-once)").uid("sink-kafka-alerts");
 
         env.execute("Crypto trades -> OHLCV + z-score alerts");
     }
