@@ -43,11 +43,16 @@ public class PriceAlert implements Serializable {
         this.timestamp = Instant.now().toString();
     }
 
-    /** Build an alert for a candle whose return scored z against the history. */
+    /**
+     * Build an alert for a candle whose return scored z against the history.
+     * Direction (PRICE_SPIKE vs PRICE_DROP) follows the price move itself (close vs prevClose),
+     * not the sign of z: in a trending history the EWMA mean can be nonzero, so a positive
+     * return can still score a negative z (and vice versa). Severity follows |z|.
+     */
     public static PriceAlert fromZScore(Candle candle, BigDecimal prevClose, double z) {
         PriceAlert a = new PriceAlert();
         a.symbol = candle.symbol;
-        a.alertType = z > 0 ? "PRICE_SPIKE" : "PRICE_DROP";
+        a.alertType = candle.close.compareTo(prevClose) > 0 ? "PRICE_SPIKE" : "PRICE_DROP";
         a.severity = severityFor(Math.abs(z));
         a.zScore = z;
         a.oldPrice = prevClose;

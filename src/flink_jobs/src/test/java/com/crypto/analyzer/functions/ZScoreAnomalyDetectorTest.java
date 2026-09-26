@@ -135,6 +135,25 @@ class ZScoreAnomalyDetectorTest {
     }
 
     @Test
+    void trendingHistoryLabelsDirectionByPriceMoveNotZ() throws Exception {
+        // Steady uptrend: EWMA mean converges to ~+0.002 with a small sd, so a positive
+        // return well below the mean still scores a large negative z. Direction must follow
+        // the price move (r > 0 => PRICE_SPIKE), not the sign of z.
+        feed(0, 10);
+        for (int i = 0; i < 150; i++) {
+            feed(i % 2 == 0 ? 0.0021 : 0.0019, 10);
+        }
+        BigDecimal before = lastClose;
+        feed(0.0001, 10);
+        List<PriceAlert> out = alerts();
+        assertEquals(1, out.size());
+        PriceAlert a = out.get(0);
+        assertEquals("PRICE_SPIKE", a.alertType);
+        assertTrue(a.zScore < -4, "z was " + a.zScore);
+        assertTrue(a.newPrice.compareTo(before) > 0, "newPrice " + a.newPrice + " should exceed oldPrice " + before);
+    }
+
+    @Test
     void severityBands() {
         assertEquals("LOW", PriceAlert.severityFor(4.01));
         assertEquals("LOW", PriceAlert.severityFor(5.99));
