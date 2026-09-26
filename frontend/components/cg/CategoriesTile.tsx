@@ -1,133 +1,63 @@
 import Image from "next/image";
-import { TrendingDown, TrendingUp } from "lucide-react";
 
 import { getCategories, type Category } from "@/lib/coingecko";
-import { cn, formatCurrency, formatPercentage } from "@/lib/utils";
+import { fmtCap } from "@/lib/format";
 import DataTable from "@/components/DataTable";
+import { Change } from "@/components/ui/change";
 
-/**
- * Top-10 categories by market cap. Server Component, 10-minute ISR. Visual
- * styling under `#categories` in globals.css (lifted from coinpulse).
- */
+/** Top categories by market cap from CoinGecko (10 min ISR). */
 export async function CategoriesTile() {
-  const cats = await getCategories({ limit: 10 });
+  const cats = await getCategories({ limit: 7 });
 
   const columns: DataTableColumn<Category>[] = [
     {
       header: "Category",
-      cellClassName: "category-cell",
-      cell: (category) => category.name,
+      cellClassName: "max-w-[14rem] truncate text-foreground",
+      cell: (c) => c.name,
     },
     {
-      header: "Top Gainers",
-      cellClassName: "top-gainers-cell",
-      cell: (category) =>
-        category.top_3_coins.map((coin) => (
-          <Image src={coin} alt="" key={coin} width={28} height={28} />
-        )),
+      header: "Top coins",
+      headClassName: "hidden sm:table-cell",
+      cellClassName: "hidden sm:table-cell",
+      cell: (c) => (
+        <span className="flex -space-x-1.5">
+          {c.top_3_coins.map((src) => (
+            <Image key={src} src={src} alt="" width={20} height={20} className="rounded-full ring-2 ring-card" />
+          ))}
+        </span>
+      ),
     },
     {
-      header: "24h Change",
-      cellClassName: "change-header-cell",
-      cell: (category) => {
-        const change = category.market_cap_change_24h ?? 0;
-        const isTrendingUp = change > 0;
-        return (
-          <div
-            className={cn(
-              "change-cell",
-              isTrendingUp ? "text-green-500" : "text-red-500",
-            )}
-          >
-            <p className="flex items-center">
-              {formatPercentage(change)}
-              {isTrendingUp ? (
-                <TrendingUp width={16} height={16} />
-              ) : (
-                <TrendingDown width={16} height={16} />
-              )}
-            </p>
-          </div>
-        );
-      },
+      header: "Market cap",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (c) => fmtCap(c.market_cap),
     },
     {
-      header: "Market Cap",
-      cellClassName: "market-cap-cell",
-      cell: (category) => formatCurrency(category.market_cap),
-    },
-    {
-      header: "24h Volume",
-      cellClassName: "volume-cell",
-      cell: (category) => formatCurrency(category.volume_24h),
+      header: "24 h",
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (c) => <Change value={c.market_cap_change_24h} />,
     },
   ];
 
   return (
-    <div id="categories" className="custom-scrollbar">
-      <h4>Top Categories</h4>
-
-      <DataTable
-        columns={columns}
-        data={cats}
-        rowKey={(_, index) => index}
-        tableClassName="mt-3"
-      />
-    </div>
+    <section aria-labelledby="categories-heading">
+      <h3 id="categories-heading" className="heading mb-2">Top categories</h3>
+      <DataTable columns={columns} data={cats} rowKey={(c) => c.id} />
+    </section>
   );
 }
 
 export function CategoriesTileSkeleton() {
-  const dummy = Array.from({ length: 10 }, (_, i) => ({ id: i }));
-
   return (
-    <div id="categories-fallback">
-      <h4>Top Categories</h4>
-      <DataTable
-        columns={
-          [
-            {
-              header: "Category",
-              cellClassName: "category-cell",
-              cell: () => <div className="category-skeleton skeleton" />,
-            },
-            {
-              header: "Top Gainers",
-              cellClassName: "top-gainers-cell",
-              cell: () => (
-                <div className="flex gap-1">
-                  <div className="coin-skeleton skeleton" />
-                  <div className="coin-skeleton skeleton" />
-                  <div className="coin-skeleton skeleton" />
-                </div>
-              ),
-            },
-            {
-              header: "24h Change",
-              cellClassName: "change-header-cell",
-              cell: () => (
-                <div className="change-cell">
-                  <div className="change-icon skeleton" />
-                  <div className="value-skeleton-sm skeleton" />
-                </div>
-              ),
-            },
-            {
-              header: "Market Cap",
-              cellClassName: "market-cap-cell",
-              cell: () => <div className="value-skeleton-lg skeleton" />,
-            },
-            {
-              header: "24h Volume",
-              cellClassName: "volume-cell",
-              cell: () => <div className="value-skeleton-md skeleton" />,
-            },
-          ] as DataTableColumn<{ id: number }>[]
-        }
-        data={dummy}
-        rowKey={(item) => item.id}
-        tableClassName="mt-3"
-      />
-    </div>
+    <section>
+      <h3 className="heading mb-2">Top categories</h3>
+      <div className="space-y-2">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="skeleton h-9" />
+        ))}
+      </div>
+    </section>
   );
 }

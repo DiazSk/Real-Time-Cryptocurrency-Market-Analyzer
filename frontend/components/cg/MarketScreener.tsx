@@ -1,63 +1,53 @@
 import Link from "next/link";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getMarketScreener, type MarketCoin } from "@/lib/coingecko";
-import { fmtCap, fmtPct, fmtUsd, pctClass } from "@/lib/format";
+import { fmtCap, fmtUsd } from "@/lib/format";
+import { Change } from "@/components/ui/change";
+import { cn } from "@/lib/utils";
 import { Sparkline } from "./Sparkline";
 
 export interface MarketScreenerProps {
-  page: number;
+  page?: number;
   perPage?: number;
+  /** Show previous/next links (the /coins page). */
+  paginate?: boolean;
 }
 
 /**
- * Paginated market screener. Server Component — page is derived from
- * page.tsx's `?page=N` searchParam and passed in as a prop.
- *
- * CoinGecko's /coins/markets doesn't return a total count, so we infer
- * "has next page" from whether we got back a full page of results.
+ * CoinGecko /coins/markets by market cap (60 s ISR). CoinGecko returns no
+ * total count, so "has next page" is inferred from a full page.
  */
-export async function MarketScreener({ page, perPage = 10 }: MarketScreenerProps) {
+export async function MarketScreener({ page = 1, perPage = 10, paginate = false }: MarketScreenerProps) {
   const safePage = Math.max(1, Math.floor(page) || 1);
   const coins = await getMarketScreener({ page: safePage, perPage });
   const hasNext = coins.length === perPage;
   const hasPrev = safePage > 1;
 
   return (
-    <section className="border border-[var(--color-border)] rounded-md bg-[var(--color-background-elev)] overflow-hidden">
-      <header className="flex items-baseline justify-between px-4 py-3 border-b border-[var(--color-border)]">
-        <h2 className="text-sm font-semibold uppercase tracking-wide">
-          Market Screener
-        </h2>
-        <span className="text-[var(--color-muted-foreground)] text-xs">
-          top {perPage * safePage} by market cap · page {safePage}
-        </span>
-      </header>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-[var(--color-muted-foreground)] text-xs uppercase tracking-wide">
-            <tr className="border-b border-[var(--color-border)]">
-              <Th className="text-right w-10">#</Th>
+    <div>
+      <div className="scroll-x">
+        <table className="num w-full text-sm">
+          <thead className="caption">
+            <tr className="border-b">
+              <Th className="w-10 pl-0 text-right">#</Th>
               <Th>Coin</Th>
               <Th className="text-right">Price</Th>
-              <Th className="text-right hidden md:table-cell">1h</Th>
-              <Th className="text-right">24h</Th>
-              <Th className="text-right hidden md:table-cell">7d</Th>
-              <Th className="text-right hidden lg:table-cell">Market Cap</Th>
-              <Th className="text-right hidden lg:table-cell">Vol (24h)</Th>
-              <Th className="text-center hidden md:table-cell">7d</Th>
+              <Th className="hidden text-right md:table-cell">1 h</Th>
+              <Th className="text-right">24 h</Th>
+              <Th className="hidden text-right md:table-cell">7 d</Th>
+              <Th className="hidden text-right lg:table-cell">Market cap</Th>
+              <Th className="hidden text-right lg:table-cell">Volume 24 h</Th>
+              <Th className="hidden pr-0 text-right md:table-cell">Last 7 d</Th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[var(--color-border)]">
+          <tbody className="divide-y">
             {coins.map((c) => (
               <Row key={c.id} c={c} />
             ))}
             {coins.length === 0 && (
               <tr>
-                <td
-                  colSpan={9}
-                  className="px-4 py-8 text-center text-[var(--color-muted-foreground)]"
-                >
-                  No coins on this page.
+                <td colSpan={9} className="py-10 text-center text-muted-foreground">
+                  CoinGecko returned no coins for page {safePage}.
                 </td>
               </tr>
             )}
@@ -65,103 +55,72 @@ export async function MarketScreener({ page, perPage = 10 }: MarketScreenerProps
         </table>
       </div>
 
-      <footer className="flex items-center justify-between px-4 py-3 border-t border-[var(--color-border)] text-xs">
-        <Link
-          href={hasPrev ? `?page=${safePage - 1}` : "?page=1"}
-          aria-disabled={!hasPrev}
-          tabIndex={hasPrev ? 0 : -1}
-          className={
-            hasPrev
-              ? "text-[var(--color-foreground)] hover:text-[var(--color-accent)]"
-              : "text-[var(--color-muted-foreground)] pointer-events-none"
-          }
-          scroll={false}
-        >
-          ← Previous
-        </Link>
-        <span className="text-[var(--color-muted-foreground)]">Page {safePage}</span>
-        <Link
-          href={`?page=${safePage + 1}`}
-          aria-disabled={!hasNext}
-          tabIndex={hasNext ? 0 : -1}
-          className={
-            hasNext
-              ? "text-[var(--color-foreground)] hover:text-[var(--color-accent)]"
-              : "text-[var(--color-muted-foreground)] pointer-events-none"
-          }
-          scroll={false}
-        >
-          Next →
-        </Link>
-      </footer>
-    </section>
+      {paginate && (
+        <nav aria-label="Screener pages" className="mt-6 flex items-center justify-between gap-4">
+          <PageLink href={`?page=${safePage - 1}`} disabled={!hasPrev}>
+            <ArrowLeft size={14} strokeWidth={1.75} aria-hidden /> Previous
+          </PageLink>
+          <span className="caption num">Page {safePage}</span>
+          <PageLink href={`?page=${safePage + 1}`} disabled={!hasNext}>
+            Next <ArrowRight size={14} strokeWidth={1.75} aria-hidden />
+          </PageLink>
+        </nav>
+      )}
+    </div>
   );
 }
 
-function Th({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+function PageLink({ href, disabled, children }: { href: string; disabled: boolean; children: React.ReactNode }) {
+  if (disabled) {
+    return (
+      <span className="pill pointer-events-none opacity-40 shadow-none" aria-disabled>
+        {children}
+      </span>
+    );
+  }
   return (
-    <th className={`px-3 py-2 font-medium ${className}`} scope="col">
+    <Link href={href} className="pill">
+      {children}
+    </Link>
+  );
+}
+
+function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <th className={cn("px-3 py-2.5 text-left font-normal whitespace-nowrap", className)} scope="col">
       {children}
     </th>
   );
 }
 
 function Row({ c }: { c: MarketCoin }) {
-  const change24h = c.price_change_percentage_24h_in_currency;
-  const change1h = c.price_change_percentage_1h_in_currency;
-  const change7d = c.price_change_percentage_7d_in_currency;
-  const sparkPrices = c.sparkline_in_7d?.price ?? [];
-
   return (
-    <tr className="hover:bg-[var(--color-background-elev-2)] transition-colors">
-      <td className="px-3 py-2.5 text-right num text-[var(--color-muted-foreground)]">
-        {c.market_cap_rank ?? "—"}
-      </td>
-      <td className="px-3 py-2.5">
-        <div className="flex items-center gap-2">
+    <tr className="relative transition-colors hover:bg-mist/60">
+      <td className="py-3 pr-3 pl-0 text-right text-muted-foreground">{c.market_cap_rank ?? "—"}</td>
+      <td className="px-3 py-3">
+        <Link href={`/coins/${c.id}`} className="flex items-center gap-2.5 whitespace-nowrap hover:underline">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={c.image}
-            alt=""
-            width={20}
-            height={20}
-            className="rounded-full"
-          />
-          <span className="font-medium">{c.name}</span>
-          <span className="text-[var(--color-muted-foreground)] uppercase text-xs">
-            {c.symbol}
-          </span>
-        </div>
+          <img src={c.image} alt="" width={20} height={20} className="rounded-full" />
+          <span className="text-foreground">{c.name}</span>
+          <span className="caption uppercase">{c.symbol}</span>
+          <span className="absolute inset-0" aria-hidden />
+        </Link>
       </td>
-      <td className="px-3 py-2.5 text-right num">{fmtUsd(c.current_price)}</td>
-      <td
-        className={`px-3 py-2.5 text-right num hidden md:table-cell ${pctClass(change1h ?? 0)}`}
-      >
-        {change1h !== null ? fmtPct(change1h) : "—"}
+      <td className="px-3 py-3 text-right text-foreground">{fmtUsd(c.current_price)}</td>
+      <td className="hidden px-3 py-3 text-right md:table-cell">
+        <Change value={c.price_change_percentage_1h_in_currency} />
       </td>
-      <td className={`px-3 py-2.5 text-right num ${pctClass(change24h ?? 0)}`}>
-        {change24h !== null ? fmtPct(change24h) : "—"}
+      <td className="px-3 py-3 text-right">
+        <Change value={c.price_change_percentage_24h_in_currency} />
       </td>
-      <td
-        className={`px-3 py-2.5 text-right num hidden md:table-cell ${pctClass(change7d ?? 0)}`}
-      >
-        {change7d !== null ? fmtPct(change7d) : "—"}
+      <td className="hidden px-3 py-3 text-right md:table-cell">
+        <Change value={c.price_change_percentage_7d_in_currency} />
       </td>
-      <td className="px-3 py-2.5 text-right num hidden lg:table-cell">
-        {fmtCap(c.market_cap)}
-      </td>
-      <td className="px-3 py-2.5 text-right num hidden lg:table-cell">
-        {fmtCap(c.total_volume)}
-      </td>
-      <td className="px-3 py-2.5 hidden md:table-cell">
-        <div className="flex justify-center">
-          <Sparkline prices={sparkPrices} />
+      <td className="hidden px-3 py-3 text-right lg:table-cell">{fmtCap(c.market_cap)}</td>
+      <td className="hidden px-3 py-3 text-right lg:table-cell">{fmtCap(c.total_volume)}</td>
+      <td className="hidden py-3 pr-0 pl-3 md:table-cell">
+        <div className="flex justify-end">
+          <Sparkline prices={c.sparkline_in_7d?.price ?? []} stroke="var(--muted-foreground)" width={88} height={24} />
         </div>
       </td>
     </tr>
@@ -170,20 +129,10 @@ function Row({ c }: { c: MarketCoin }) {
 
 export function MarketScreenerSkeleton({ perPage = 10 }: { perPage?: number }) {
   return (
-    <section className="border border-[var(--color-border)] rounded-md bg-[var(--color-background-elev)] animate-pulse">
-      <header className="px-4 py-3 border-b border-[var(--color-border)]">
-        <div className="h-4 w-40 bg-[var(--color-border)] rounded" />
-      </header>
-      <div className="divide-y divide-[var(--color-border)]">
-        {Array.from({ length: perPage }).map((_, i) => (
-          <div key={i} className="flex items-center gap-3 px-4 py-3">
-            <div className="w-5 h-5 bg-[var(--color-border)] rounded-full" />
-            <div className="h-3 flex-1 bg-[var(--color-border)] rounded" />
-            <div className="h-3 w-20 bg-[var(--color-border)] rounded" />
-            <div className="h-3 w-16 bg-[var(--color-border)] rounded" />
-          </div>
-        ))}
-      </div>
-    </section>
+    <div className="space-y-2" aria-label="Loading screener">
+      {Array.from({ length: perPage }).map((_, i) => (
+        <div key={i} className="skeleton h-10" />
+      ))}
+    </div>
   );
 }

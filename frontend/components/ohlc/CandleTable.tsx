@@ -3,71 +3,70 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { fmtTime, fmtUsd, fmtVolume } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
-export function CandleTable({ symbol }: { symbol: string }) {
+/** The most recent 1m candles as the pipeline wrote them, including trades per candle. */
+export function CandleTable({ symbol, rows = 10 }: { symbol: string; rows?: number }) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["candles", symbol, "table"],
-    queryFn: () => api.historical(symbol, { limit: 30, order_by: "desc" }),
+    queryKey: ["candles", symbol, "1m", "table", rows],
+    queryFn: () => api.historical(symbol, { interval: "1m", limit: rows, order_by: "desc" }),
     refetchInterval: 60_000,
   });
 
   return (
-    <div className="rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-background-elev)]">
-      <div className="border-b border-[color:var(--color-border)] px-4 py-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide">
-          Recent Candles
-          <span className="ml-2 text-muted-foreground">— {symbol} (1m)</span>
-        </h3>
+    <section aria-labelledby="candle-table-heading">
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <h2 id="candle-table-heading" className="heading">
+          Recent 1m candles
+        </h2>
+        <span className="caption">Flink event-time windows, deduplicated</span>
       </div>
 
-      <div className="max-h-[420px] overflow-y-auto">
-        {isLoading && (
-          <div className="space-y-2 p-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-8 animate-pulse rounded bg-[color:var(--color-background-elev-2)]"
-              />
-            ))}
-          </div>
-        )}
-
-        {error && <div className="p-4 text-sm text-down">Failed to load candles.</div>}
-
-        {data && (
-          <table className="num w-full text-sm">
-            <thead className="sticky top-0 bg-[color:var(--color-background-elev)] text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-4 py-2 text-left font-medium">Time</th>
-                <th className="px-2 py-2 text-right font-medium">Open</th>
-                <th className="px-2 py-2 text-right font-medium">High</th>
-                <th className="px-2 py-2 text-right font-medium">Low</th>
-                <th className="px-2 py-2 text-right font-medium">Close</th>
-                <th className="px-4 py-2 text-right font-medium">Vol (USD)</th>
+      {isLoading ? (
+        <div className="space-y-1.5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="skeleton h-8" />
+          ))}
+        </div>
+      ) : error ? (
+        <p className="text-sm text-muted-foreground">Couldn&apos;t load candles. Retrying every 60 s.</p>
+      ) : !data?.length ? (
+        <p className="text-sm text-muted-foreground">No 1m candles for {symbol} in the last 24 h yet.</p>
+      ) : (
+        <div className="scroll-x">
+          <table className="num w-full min-w-[560px] text-sm">
+            <thead className="caption text-left">
+              <tr className="border-b">
+                <th scope="col" className="py-2 pr-3 font-normal">Minute</th>
+                <th scope="col" className="px-3 py-2 text-right font-normal">Open</th>
+                <th scope="col" className="px-3 py-2 text-right font-normal">High</th>
+                <th scope="col" className="px-3 py-2 text-right font-normal">Low</th>
+                <th scope="col" className="px-3 py-2 text-right font-normal">Close</th>
+                <th scope="col" className="px-3 py-2 text-right font-normal">Volume</th>
+                <th scope="col" className="py-2 pl-3 text-right font-normal">Trades</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[color:var(--color-border)]">
+            <tbody className="divide-y">
               {data.map((c) => {
                 const up = c.close_price >= c.open_price;
                 return (
-                  <tr key={c.window_start} className="hover:bg-[color:var(--color-background-elev-2)]">
-                    <td className="px-4 py-1.5 text-left text-muted-foreground">{fmtTime(c.window_start)}</td>
-                    <td className="px-2 py-1.5 text-right">{fmtUsd(c.open_price)}</td>
-                    <td className="px-2 py-1.5 text-right text-up">{fmtUsd(c.high_price)}</td>
-                    <td className="px-2 py-1.5 text-right text-down">{fmtUsd(c.low_price)}</td>
-                    <td className={`px-2 py-1.5 text-right ${up ? "text-up" : "text-down"}`}>
+                  <tr key={c.window_start}>
+                    <td className="py-2 pr-3 text-muted-foreground">{fmtTime(c.window_start)}</td>
+                    <td className="px-3 py-2 text-right">{fmtUsd(c.open_price)}</td>
+                    <td className="px-3 py-2 text-right">{fmtUsd(c.high_price)}</td>
+                    <td className="px-3 py-2 text-right">{fmtUsd(c.low_price)}</td>
+                    <td className={cn("px-3 py-2 text-right", up ? "text-up" : "text-down")}>
                       {fmtUsd(c.close_price)}
                     </td>
-                    <td className="px-4 py-1.5 text-right text-muted-foreground">
-                      {fmtVolume(c.quote_volume)}
-                    </td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">{fmtVolume(c.quote_volume)}</td>
+                    <td className="py-2 pl-3 text-right">{c.trade_count.toLocaleString()}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </section>
   );
 }

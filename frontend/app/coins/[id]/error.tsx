@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CircleAlert, RotateCw, Timer } from "lucide-react";
 
+/** Coin page failure. CoinGecko's free tier rate limit gets a countdown. */
 export default function CoinDetailError({
   error,
   reset,
@@ -11,63 +13,32 @@ export default function CoinDetailError({
 }) {
   const retryMatch = error.message.match(/Retry after (\d+)s/);
   const isRateLimit = retryMatch !== null;
-  const initialSeconds = retryMatch ? parseInt(retryMatch[1], 10) : 0;
-
-  const [secondsLeft, setSecondsLeft] = useState(initialSeconds);
+  const [secondsLeft, setSecondsLeft] = useState(retryMatch ? parseInt(retryMatch[1], 10) : 0);
 
   useEffect(() => {
-    if (secondsLeft <= 0) return;
-    const id = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          clearInterval(id);
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
+    const id = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(id);
   }, []);
 
+  const Icon = isRateLimit ? Timer : CircleAlert;
+  const waiting = isRateLimit && secondsLeft > 0;
+
   return (
-    <main className="flex min-h-[60vh] flex-col items-center justify-center gap-6 px-4 text-center">
-      <div className="rounded-xl border border-purple-600/20 bg-dark-500 p-10 max-w-md w-full flex flex-col items-center gap-4">
-        {isRateLimit ? (
-          <>
-            <span className="text-4xl">⏱</span>
-            <h2 className="text-xl font-semibold text-white">Rate limit reached</h2>
-            <p className="text-sm text-purple-100">
-              CoinGecko&apos;s free-tier limit was hit. The page will be ready
-              to retry shortly.
-            </p>
-            {secondsLeft > 0 ? (
-              <p className="text-2xl font-bold text-green-400 tabular-nums">
-                {secondsLeft}s
-              </p>
-            ) : null}
-            <button
-              onClick={reset}
-              disabled={secondsLeft > 0}
-              className="mt-2 rounded-lg bg-green-500 px-5 py-2 text-sm font-medium text-gray-900 hover:bg-green-400 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {secondsLeft > 0 ? `Try again in ${secondsLeft}s` : "Try again"}
-            </button>
-          </>
-        ) : (
-          <>
-            <span className="text-4xl">⚠️</span>
-            <h2 className="text-xl font-semibold text-white">Failed to load coin</h2>
-            <p className="text-sm text-purple-100">
-              Something went wrong fetching coin data. Please try again.
-            </p>
-            <button
-              onClick={reset}
-              className="mt-2 rounded-lg bg-green-500 px-5 py-2 text-sm font-medium text-gray-900 hover:bg-green-400 transition-colors"
-            >
-              Try again
-            </button>
-          </>
-        )}
+    <main className="flex flex-1 items-center justify-center px-4 py-16">
+      <div className="surface fringe-top w-full max-w-md p-8 text-center">
+        <Icon className="mx-auto text-muted-foreground" size={28} strokeWidth={1.5} aria-hidden />
+        <h1 className="mt-4 text-2xl font-light tracking-[-0.015em]">
+          {isRateLimit ? "CoinGecko rate limit reached" : "This coin didn't load"}
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          {isRateLimit
+            ? "Coin details come from CoinGecko's free tier, which just asked us to slow down. Our own live data is unaffected."
+            : "Fetching coin details from CoinGecko failed. It's usually temporary."}
+        </p>
+        <button type="button" onClick={reset} disabled={waiting} className="pill mt-6">
+          <RotateCw size={14} strokeWidth={1.75} aria-hidden />
+          {waiting ? <span className="num">Try again in {secondsLeft} s</span> : "Try again"}
+        </button>
       </div>
     </main>
   );

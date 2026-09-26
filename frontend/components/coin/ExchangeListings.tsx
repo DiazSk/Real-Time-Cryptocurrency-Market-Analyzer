@@ -1,16 +1,12 @@
 import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
 
 import DataTable from "@/components/DataTable";
-import { formatCurrency, timeAgo } from "@/lib/utils";
+import { fmtUsd, timeAgo } from "@/lib/format";
 import type { Ticker } from "@/lib/coingecko";
 
-/**
- * Renders the CoinGecko `tickers` array for a coin as a styled DataTable.
- * Visual rules live under `#coin-details-page .exchange-table` in
- * globals.css (lifted from coinpulse).
- */
+/** The coin's top 10 CoinGecko tickers by USD volume. */
 export function ExchangeListings({ tickers }: { tickers: Ticker[] }) {
-  // CoinGecko returns up to ~100 tickers; show the top 10 by USD volume.
   const top = [...tickers]
     .sort(
       (a, b) =>
@@ -24,49 +20,53 @@ export function ExchangeListings({ tickers }: { tickers: Ticker[] }) {
   const columns: DataTableColumn<Ticker>[] = [
     {
       header: "Exchange",
-      cellClassName: "exchange-name",
+      cellClassName: "text-foreground",
       cell: (t) =>
         t.trade_url ? (
-          <>
+          <Link
+            href={t.trade_url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1 hover:underline"
+          >
             {t.market.name}
-            <Link href={t.trade_url} target="_blank" rel="noreferrer noopener" />
-          </>
+            <ArrowUpRight size={13} strokeWidth={1.75} aria-hidden />
+            <span className="sr-only">(opens in a new tab)</span>
+          </Link>
         ) : (
           t.market.name
         ),
     },
     {
       header: "Pair",
-      cellClassName: "pair",
-      cell: (t) => (
-        <>
-          <p>{t.base}</p>
-          <p>/</p>
-          <p>{t.target}</p>
-        </>
-      ),
+      cellClassName: "text-muted-foreground",
+      cell: (t) => `${t.base}/${t.target}`.slice(0, 24),
     },
     {
       header: "Price",
-      cellClassName: "price-cell",
-      cell: (t) => formatCurrency(t.converted_last?.usd ?? 0),
+      headClassName: "text-right",
+      cellClassName: "text-right",
+      cell: (t) => fmtUsd(t.converted_last?.usd),
     },
     {
-      header: "Last Updated",
-      cellClassName: "time-cell",
+      header: "Updated",
+      headClassName: "text-right",
+      cellClassName: "text-right text-muted-foreground",
       cell: (t) => (t.timestamp ? timeAgo(t.timestamp) : "—"),
     },
   ];
 
   return (
-    <div className="exchange-section">
-      <h4>Exchange Listings</h4>
+    <section aria-labelledby="exchanges-heading">
+      <h2 id="exchanges-heading" className="heading">
+        Exchange listings
+      </h2>
+      <p className="caption mt-0.5 mb-2">Top 10 by USD volume · CoinGecko</p>
       <DataTable
         data={top}
         columns={columns}
         rowKey={(t, i) => `${t.market.name}-${t.base}-${t.target}-${i}`}
-        tableClassName="exchange-table"
       />
-    </div>
+    </section>
   );
 }

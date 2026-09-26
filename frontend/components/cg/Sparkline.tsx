@@ -1,5 +1,5 @@
 /**
- * Tiny inline-SVG sparkline. No charting library — `lightweight-charts` is
+ * Tiny inline-SVG sparkline. No charting library: a chart component is
  * overkill for a 168-point 7-day price strip in a table cell.
  *
  * Server-renderable: no hooks, no client state, no `'use client'`.

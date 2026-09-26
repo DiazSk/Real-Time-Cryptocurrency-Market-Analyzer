@@ -8,11 +8,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-/**
- * Generic data table used across home (TrendingCoins, Categories) and the
- * /coins screener. Ported verbatim from coinpulse — visual styling lives in
- * globals.css via the parent's `tableClassName`.
- */
+/** Generic hairline table used by the CoinGecko tiles and exchange listings. */
 const DataTable = <T,>({
   columns,
   data,
@@ -25,14 +21,14 @@ const DataTable = <T,>({
   bodyCellClassName,
 }: DataTableProps<T>) => {
   return (
-    <Table className={cn("custom-scrollbar", tableClassName)}>
+    <Table className={tableClassName}>
       <TableHeader className={headerClassName}>
-        <TableRow className={cn("hover:bg-transparent!", headerRowClassName)}>
+        <TableRow className={cn("hover:bg-transparent", headerRowClassName)}>
           {columns.map((column, i) => (
             <TableHead
               key={i}
               className={cn(
-                "bg-dark-400 text-purple-100 py-4 first:pl-5 last:pr-5",
+                "caption h-9 font-normal first:pl-0 last:pr-0",
                 headerCellClassName,
                 column.headClassName,
               )}
@@ -44,17 +40,11 @@ const DataTable = <T,>({
       </TableHeader>
       <TableBody>
         {data.map((row, rowIndex) => (
-          <TableRow
-            key={rowKey(row, rowIndex)}
-            className={cn(
-              "overflow-hidden rounded-lg border-b border-purple-100/5 hover:bg-dark-400/30! relative",
-              bodyRowClassName,
-            )}
-          >
+          <TableRow key={rowKey(row, rowIndex)} className={cn("relative", bodyRowClassName)}>
             {columns.map((column, columnIndex) => (
               <TableCell
                 key={columnIndex}
-                className={cn("py-4 first:pl-5 last:pr-5", bodyCellClassName, column.cellClassName)}
+                className={cn("py-3 first:pl-0 last:pr-0", bodyCellClassName, column.cellClassName)}
               >
                 {column.cell(row, rowIndex)}
               </TableCell>

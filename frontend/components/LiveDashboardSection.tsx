@@ -1,89 +1,99 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { SymbolPicker } from "@/components/chart/SymbolPicker";
-import CoinChart from "@/components/coin/CoinChart";
-import { StatsPanel } from "@/components/stats/StatsPanel";
+import { ArrowRight } from "lucide-react";
 import { AlertsFeed } from "@/components/alerts/AlertsFeed";
+import { LivePriceChart } from "@/components/coin/LivePriceChart";
+import { LiveProvenance, PriceHero } from "@/components/coin/PriceHero";
+import { PriceChart } from "@/components/coin/PriceChart";
 import { CandleTable } from "@/components/ohlc/CandleTable";
+import { StatsPanel } from "@/components/stats/StatsPanel";
+import { useChange, Watchlist } from "@/components/ticker/Watchlist";
 import { api } from "@/lib/api";
-import { fetchCoinOHLC } from "@/lib/coingecko-actions";
-import { useCryptoSocket } from "@/lib/ws";
+import { useLiveTrades, useNowSeconds } from "@/lib/ws";
 
 /**
- * Client-side wrapper for the home dashboard's live section. Uses the same
- * coinpulse-styled CoinChart as /coins/[id] for visual parity:
- *   - CoinGecko-backed hourly OHLC as the static layer (rich, period-switchable)
- *   - Our /ws/prices/{symbol} live candle merged in as the trailing tick
+ * The first viewport of `/`. One ALL-symbols WebSocket feeds the watchlist, the
+ * rolling price, the live trade line and the 1m candle tail.
  *
- * Our 1-min Flink-aggregated candles are still surfaced — see the
- * CandleTable + StatsPanel + AlertsFeed below.
+ * Desktop: wide main column (hero, live line, candles) + narrow rail
+ * (watchlist, stats, alerts). Mobile: watchlist chips, hero, charts, rail.
  */
 export function LiveDashboardSection() {
   const [symbol, setSymbol] = useState("BTC");
-
   const { data: symbols } = useQuery({
     queryKey: ["symbols"],
     queryFn: api.symbols,
     staleTime: 60 * 60 * 1000,
   });
+  const { status, latestBySymbol, series } = useLiveTrades("ALL");
+  const now = useNowSeconds();
 
-  const slug = symbols?.find((s) => s.symbol === symbol)?.slug ?? null;
+  const prices: Record<string, number | undefined> = {};
+  const lastTradeAt: Record<string, number | undefined> = {};
+  for (const [sym, pts] of Object.entries(series)) {
+    prices[sym] = pts.at(-1)?.value;
+    lastTradeAt[sym] = pts.at(-1)?.time;
+  }
 
-  const { data: ohlcData = [] } = useQuery({
-    queryKey: ["coin-ohlc-init", slug],
-    queryFn: () => fetchCoinOHLC(slug as string, 1),
-    enabled: !!slug,
-    staleTime: 60_000,
-  });
-
-  const { latestBySymbol } = useCryptoSocket(symbol);
-  const liveCandle = latestBySymbol[symbol];
-  const liveOhlcv: OHLCData | null = liveCandle
-    ? [
-        liveCandle.windowStart,
-        liveCandle.open,
-        liveCandle.high,
-        liveCandle.low,
-        liveCandle.close,
-      ]
-    : null;
+  const meta = symbols?.find((s) => s.symbol === symbol);
+  const price = prices[symbol] ?? latestBySymbol[symbol]?.close;
+  const { pct, window } = useChange(symbol, price);
 
   return (
-    <>
-      <header className="border-b border-[color:var(--color-border)] px-6 py-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">
-              Crypto Market Analyzer
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Real-time terminal · Flink-driven 1-min candles · Pub/Sub alerts
-            </p>
-          </div>
-          <SymbolPicker value={symbol} onChange={setSymbol} />
-        </div>
-      </header>
+    <div className="mx-auto grid w-full max-w-[1440px] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_1fr]">
+      <div className="px-4 pt-4 sm:px-8 lg:col-start-2 lg:row-start-1 lg:border-l lg:bg-mist/50 lg:px-6 lg:pt-8">
+        <Watchlist
+          symbols={symbols}
+          prices={prices}
+          lastTradeAt={lastTradeAt}
+          now={now}
+          selected={symbol}
+          onSelect={setSymbol}
+        />
+      </div>
 
-      <section className="space-y-4 px-6 py-5">
-        <StatsPanel symbol={symbol} />
+      <section aria-label={`${symbol} live price and candles`} className="min-w-0 space-y-10 px-4 pt-6 pb-12 sm:px-8 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:pt-8">
+        <PriceHero
+          name={meta?.name ?? symbol}
+          symbol={symbol}
+          price={price}
+          change={pct}
+          changeLabel={window === "24h" ? "24 h" : "past hour"}
+          provenance={
+            <LiveProvenance
+              status={status}
+              symbol={symbol}
+              lastTradeAt={lastTradeAt[symbol]}
+              now={now}
+            />
+          }
+          aside={
+            meta && (
+              <Link
+                href={`/coins/${meta.slug}`}
+                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+              >
+                Details
+                <ArrowRight size={14} strokeWidth={1.75} aria-hidden />
+              </Link>
+            )
+          }
+        />
 
-        {slug && (
-          <CoinChart
-            coinId={slug}
-            data={ohlcData}
-            liveOhlcv={liveOhlcv}
-            mode="live"
-            initialPeriod="daily"
-          />
-        )}
+        <LivePriceChart symbol={symbol} points={series[symbol] ?? []} />
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <AlertsFeed symbol={symbol} />
-          <CandleTable symbol={symbol} />
-        </div>
+        <PriceChart symbol={symbol} liveCandle={latestBySymbol[symbol]} />
+
+        <CandleTable symbol={symbol} />
       </section>
-    </>
+
+      <aside className="space-y-10 px-4 pb-12 sm:px-8 lg:col-start-2 lg:row-start-2 lg:border-l lg:bg-mist/50 lg:px-6 lg:pt-10">
+        <StatsPanel symbol={symbol} />
+        <AlertsFeed symbol={symbol} />
+      </aside>
+    </div>
   );
 }
