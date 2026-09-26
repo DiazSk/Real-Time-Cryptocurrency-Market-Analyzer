@@ -82,6 +82,8 @@ export interface LiveLineProps {
    * Overrides `stroke` for the line and fill (dot always uses momentum colors).
    */
   momentumColors?: MomentumColors;
+  /** Paint the line with a left-to-right gradient through these colours (overrides stroke for the line only). */
+  strokeGradient?: string[];
 }
 
 LiveLine.displayName = "LiveLine";
@@ -97,6 +99,7 @@ export function LiveLine({
   badge = true,
   formatValue = (v: number) => v.toFixed(2),
   momentumColors,
+  strokeGradient,
 }: LiveLineProps) {
   const {
     data,
@@ -162,10 +165,29 @@ export function LiveLine({
   return (
     <>
       <defs>
-        <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor={resolvedStroke} stopOpacity={1} />
-          <stop offset="100%" stopColor={resolvedStroke} stopOpacity={0.6} />
-        </linearGradient>
+        {strokeGradient && strokeGradient.length > 1 ? (
+          <linearGradient
+            id={gradientId}
+            gradientUnits="userSpaceOnUse"
+            x1={0}
+            x2={innerWidth}
+            y1={0}
+            y2={0}
+          >
+            {strokeGradient.map((c, i) => (
+              <stop
+                key={c + i}
+                offset={`${(i / (strokeGradient.length - 1)) * 100}%`}
+                stopColor={c}
+              />
+            ))}
+          </linearGradient>
+        ) : (
+          <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stopColor={resolvedStroke} stopOpacity={1} />
+            <stop offset="100%" stopColor={resolvedStroke} stopOpacity={0.6} />
+          </linearGradient>
+        )}
         <linearGradient id={areaGradientId} x1="0" x2="0" y1="0" y2="1">
           <stop offset="0%" stopColor={resolvedStroke} stopOpacity={0.1} />
           <stop offset="100%" stopColor={resolvedStroke} stopOpacity={0} />

@@ -55,7 +55,7 @@ export function LiveDashboardSection() {
         />
       </div>
 
-      <section aria-label={`${symbol} live price and candles`} className="min-w-0 space-y-10 px-4 pt-6 pb-12 sm:px-8 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:pt-8">
+      <section aria-label={`${symbol} live price and candles`} className="min-w-0 space-y-7 px-4 pt-6 pb-12 sm:px-8 lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:pt-8">
         <PriceHero
           name={meta?.name ?? symbol}
           symbol={symbol}
@@ -72,10 +72,7 @@ export function LiveDashboardSection() {
           }
           aside={
             meta && (
-              <Link
-                href={`/coins/${meta.slug}`}
-                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-              >
+              <Link href={`/coins/${meta.slug}`} className="pill pill-sm">
                 Details
                 <ArrowRight size={14} strokeWidth={1.75} aria-hidden />
               </Link>
@@ -87,7 +84,9 @@ export function LiveDashboardSection() {
 
         <PriceChart symbol={symbol} liveCandle={latestBySymbol[symbol]} />
 
-        <CandleTable symbol={symbol} />
+        <div className="pt-6">
+          <CandleTable symbol={symbol} />
+        </div>
       </section>
 
       <aside className="space-y-10 px-4 pb-12 sm:px-8 lg:col-start-2 lg:row-start-2 lg:border-l lg:bg-mist/50 lg:px-6 lg:pt-10">

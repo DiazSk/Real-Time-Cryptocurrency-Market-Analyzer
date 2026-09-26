@@ -37,7 +37,7 @@ function TrackedDetail({ coin, symbol }: LiveCoinDetailProps & { symbol: string 
   const price = last?.value ?? latestBySymbol[symbol]?.close ?? coin.market_data.current_price.usd;
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-7">
       <PriceHero
         name={coin.name}
         symbol={symbol}
@@ -54,7 +54,7 @@ function TrackedDetail({ coin, symbol }: LiveCoinDetailProps & { symbol: string 
 
 function UntrackedDetail({ coin, coinId, coinOHLCData }: LiveCoinDetailProps) {
   return (
-    <div className="space-y-10">
+    <div className="space-y-7">
       <PriceHero
         name={coin.name}
         symbol={coin.symbol.toUpperCase()}

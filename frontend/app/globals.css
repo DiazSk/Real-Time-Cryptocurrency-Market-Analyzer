@@ -66,6 +66,11 @@
   --violet-ink: #5b4bc4; /* active text, live dot, focus ring: 5.5:1 */
   --violet-edge: #a597f2; /* active hairline */
   --fringe: linear-gradient(90deg, var(--mint), var(--rose) 50%, var(--violet));
+  /* Full-chroma fringe for 1px hairlines, so the edge reads at screenshot scale. */
+  --fringe-1: #2fc49c;
+  --fringe-2: #ee6aa0;
+  --fringe-3: #7a62ee;
+  --fringe-vivid: linear-gradient(90deg, var(--fringe-1), var(--fringe-2) 50%, var(--fringe-3));
 
   --up: #0b7a53; /* 5.3:1 */
   --down: #c0344e; /* 5.4:1 */
@@ -117,6 +122,9 @@
     --violet: #b3a6ff;
     --violet-ink: #b8acff;
     --violet-edge: #8b7ce6;
+    --fringe-1: #5fe0bd;
+    --fringe-2: #ff8fbb;
+    --fringe-3: #a594ff;
 
     --up: #4cd49a;
     --down: #ff7d90;
@@ -172,7 +180,7 @@
     position: absolute;
     inset: 0 0 auto;
     height: 1px;
-    background: var(--fringe);
+    background: var(--fringe-vivid);
     border-radius: inherit;
     pointer-events: none;
   }
@@ -186,7 +194,7 @@
     position: absolute;
     inset: auto 0 0;
     height: 1px;
-    background: var(--fringe);
+    background: var(--fringe-vivid);
     pointer-events: none;
   }
 
@@ -218,13 +226,19 @@
     border: 1px solid transparent;
     background:
       linear-gradient(var(--card), var(--card)) padding-box,
-      var(--fringe) border-box;
+      var(--fringe-vivid) border-box;
     color: var(--foreground);
     font-size: 0.875rem;
     box-shadow: var(--shadow-soft);
     transition:
       box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
       background 200ms;
+  }
+  .pill-sm {
+    min-height: 2rem;
+    padding: 0 0.875rem;
+    font-size: 0.8125rem;
+    box-shadow: none;
   }
   .pill:hover {
     box-shadow: var(--shadow-lift);
@@ -312,9 +326,9 @@
 
   /* Section heading used across the page (no eyebrow labels anywhere). */
   .heading {
-    font-size: 1.125rem;
-    font-weight: 400;
-    letter-spacing: -0.01em;
+    font-size: 1.25rem;
+    font-weight: 300;
+    letter-spacing: -0.015em;
     color: var(--foreground);
   }
   .caption {

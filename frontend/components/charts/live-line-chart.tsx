@@ -110,6 +110,14 @@ function computeTargetRange(
   if (value > max) {
     max = value;
   }
+  // Floor the visible span at 0.02% of price so bid/ask flicker of one tick
+  // doesn't fill the chart height (and y labels don't collapse to one value).
+  const minSpan = Math.abs(value) * 0.0002;
+  if (max - min < minSpan) {
+    const mid = (max + min) / 2;
+    min = mid - minSpan / 2;
+    max = mid + minSpan / 2;
+  }
   const rawRange = max - min;
   const paddingFactor = exaggerate ? 0.03 : 0.15;
   const rangePad = rawRange * paddingFactor || (exaggerate ? 0.04 : 10);
@@ -333,18 +341,18 @@ const LiveLineChartCore = memo(function LiveLineChartCore({
   const innerHeight = height - margin.top - margin.bottom;
 
   // ---- Animation state ----
-  const animRef = useRef<AnimFrame>({
+  // Start at the data's own extent so the first frame is already correct
+  // (the upstream default of 0..100 lerped the y-domain up from zero).
+  const initialFrame = (): AnimFrame => ({
     now: Date.now(),
-    yMin: 0,
-    yMax: 100,
+    ...computeTargetRange(data, value, exaggerate),
     displayValue: value,
   });
-  const [frame, setFrame] = useState<AnimFrame>({
-    now: Date.now(),
-    yMin: 0,
-    yMax: 100,
-    displayValue: value,
-  });
+  const animRef = useRef<AnimFrame | null>(null);
+  if (animRef.current === null) {
+    animRef.current = initialFrame();
+  }
+  const [frame, setFrame] = useState<AnimFrame>(initialFrame);
 
   const pausedRef = useRef(paused);
   const dataRef = useRef(data);
@@ -377,7 +385,7 @@ const LiveLineChartCore = memo(function LiveLineChartCore({
     let raf: number;
     const tick = () => {
       const next = nextAnimFrame(
-        animRef.current,
+        animRef.current as AnimFrame,
         targetRange,
         value,
         lerpSpeed,

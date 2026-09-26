@@ -120,7 +120,12 @@ export function Watchlist({
                       width={72}
                       height={22}
                       strokeWidth={1.25}
-                      stroke={active ? "var(--violet-ink)" : "var(--muted-foreground)"}
+                      stroke="var(--muted-foreground)"
+                      gradient={
+                        active
+                          ? { id: `spark-${s.symbol}`, colors: ["var(--fringe-1)", "var(--fringe-2)", "var(--fringe-3)"] }
+                          : undefined
+                      }
                     />
                   </span>
                   <span className="flex items-baseline gap-2 lg:ml-auto lg:flex-col lg:items-end lg:gap-0">

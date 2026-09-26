@@ -6,6 +6,7 @@ import {
   statsSchema,
   symbolsResponseSchema,
   trendingResponseSchema,
+  tradesResponseSchema,
   type Candle,
   type HistoricalCandle,
   type LatestAll,
@@ -57,6 +58,12 @@ export const api = {
       return raw.map((r) => historicalCandleSchema.parse(r)) as HistoricalCandle[];
     });
   },
+
+  /** Last `seconds` of raw trades (max 300), oldest first; seeds the live line. */
+  trades: (symbol: string, seconds = 60) =>
+    fetchJson(`/api/v1/trades/${symbol}?seconds=${seconds}`, tradesResponseSchema).then(
+      (r) => r.trades.map((t) => ({ time: t.time, value: t.price })),
+    ),
 
   stats: (symbol: string) =>
     fetchJson<Stats>(`/api/v1/historical/${symbol}/stats`, statsSchema),

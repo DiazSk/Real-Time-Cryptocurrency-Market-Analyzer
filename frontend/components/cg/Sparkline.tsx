@@ -12,6 +12,8 @@ export interface SparklineProps {
   stroke?: string;
   strokeWidth?: number;
   className?: string;
+  /** Stroke with a left-to-right gradient through these colours. Needs a page-unique id. */
+  gradient?: { id: string; colors: string[] };
 }
 
 export function Sparkline({
@@ -21,6 +23,7 @@ export function Sparkline({
   stroke,
   strokeWidth = 1.2,
   className,
+  gradient,
 }: SparklineProps) {
   if (!prices || prices.length < 2) {
     return (
@@ -59,10 +62,19 @@ export function Sparkline({
       role="img"
       aria-label={isUp ? "Price up over period" : "Price down over period"}
     >
+      {gradient && (
+        <defs>
+          <linearGradient id={gradient.id} gradientUnits="userSpaceOnUse" x1={0} x2={width} y1={0} y2={0}>
+            {gradient.colors.map((c, i) => (
+              <stop key={c + i} offset={`${(i / Math.max(1, gradient.colors.length - 1)) * 100}%`} stopColor={c} />
+            ))}
+          </linearGradient>
+        </defs>
+      )}
       <polyline
         points={points}
         fill="none"
-        stroke={color}
+        stroke={gradient ? `url(#${gradient.id})` : color}
         strokeWidth={strokeWidth}
         strokeLinejoin="round"
         strokeLinecap="round"

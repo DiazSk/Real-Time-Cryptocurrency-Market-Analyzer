@@ -26,7 +26,7 @@ export function AlertsFeed({ symbol, limit = 8 }: { symbol: string; limit?: numb
   const alerts = data?.alerts.slice(0, limit) ?? [];
 
   return (
-    <section aria-labelledby={`alerts-heading-${symbol}`}>
+    <section aria-labelledby={`alerts-heading-${symbol}`} className="fringe-top pt-5">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 id={`alerts-heading-${symbol}`} className="heading">
           Anomaly alerts

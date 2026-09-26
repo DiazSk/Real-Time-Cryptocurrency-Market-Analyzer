@@ -32,13 +32,14 @@ const PERIODS = Object.keys(PERIOD_CONFIG) as Period[];
 
 // ── Our intervals (tracked symbols) ────────────────────────────────────────
 // /historical serves the last 24 h by default; these limits fill the chart.
-// The x axis always spans the full window, so minutes without trades show as
-// real gaps instead of neighbouring candles being squeezed together.
-const INTERVALS: { value: CandleInterval; limit: number; stepMs: number; span: string }[] = [
-  { value: "1m", limit: 120, stepMs: 60_000, span: "last 2 h" },
-  { value: "5m", limit: 144, stepMs: 300_000, span: "last 12 h" },
-  { value: "15m", limit: 96, stepMs: 900_000, span: "last 24 h" },
-  { value: "1h", limit: 24, stepMs: 3_600_000, span: "last 24 h" },
+// `limit` is how far back we fetch; the chart then shows the most recent
+// contiguous run (see `recentRun`), at least MIN_SLOTS wide.
+const MIN_SLOTS = 30;
+const INTERVALS: { value: CandleInterval; limit: number; stepMs: number }[] = [
+  { value: "1m", limit: 120, stepMs: 60_000 },
+  { value: "5m", limit: 144, stepMs: 300_000 },
+  { value: "15m", limit: 96, stepMs: 900_000 },
+  { value: "1h", limit: 24, stepMs: 3_600_000 },
 ];
 
 type Point = OHLCDataPoint & { volume?: number; trades?: number };
@@ -72,7 +73,7 @@ interface PriceChartProps {
  *    live WS candle merged into the tail at 1m.
  *  - Untracked: CoinGecko OHLC with the period switcher.
  */
-function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 300 }: PriceChartProps) {
+function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 236 }: PriceChartProps) {
   const [interval, setInterval_] = useState<CandleInterval>("1m");
   const [period, setPeriod] = useState<Period>("daily");
   const tracked = symbol !== null;
@@ -134,23 +135,31 @@ function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 300 
       .map(([t, o, h, l, c]) => ({ date: new Date(t), open: o, high: h, low: l, close: c }));
   }, [tracked, ours.data, cg.data, interval, liveCandle, symbol]);
 
-  // Fixed window for our candles, anchored to the last fetch (not render time).
-  const xDomain = useMemo<[Date, Date] | undefined>(() => {
-    if (!tracked || !ours.dataUpdatedAt) return undefined;
-    const end = Math.floor(ours.dataUpdatedAt / spec.stepMs) * spec.stepMs;
-    const lastT = points.at(-1)?.date.getTime() ?? end;
-    const right = Math.max(end, lastT);
-    return [new Date(right - (spec.limit - 1) * spec.stepMs), new Date(right)];
-  }, [tracked, ours.dataUpdatedAt, spec, points]);
+  // Our candles: keep only the latest contiguous run so stale orphans (a lone
+  // candle from hours ago) stay out of the x and y domains. The x axis spans
+  // that run in real time, so short trade-less gaps inside it stay visible.
+  const { shown, xDomain, slots, trimmed } = useMemo(() => {
+    if (!tracked || points.length === 0) {
+      return { shown: points, xDomain: undefined, slots: undefined, trimmed: false };
+    }
+    const run = recentRun(points, spec.stepMs * 5);
+    const first = run[0].date.getTime();
+    const last = run.at(-1)!.date.getTime();
+    const n = Math.min(spec.limit, Math.max(Math.min(MIN_SLOTS, spec.limit), (last - first) / spec.stepMs + 1));
+    const domain: [Date, Date] = [new Date(last - (n - 1) * spec.stepMs), new Date(last)];
+    return { shown: run, xDomain: domain, slots: n, trimmed: run.length < points.length };
+  }, [tracked, points, spec]);
 
   const q = tracked ? ours : cg;
   const intraday = tracked || period === "daily" || period === "weekly";
   const caption = tracked
-    ? `${interval} candles, ${spec.span} · our pipeline · refreshed every 60 s`
+    ? shown.length
+      ? `${interval} candles from ${fmtClock(shown[0].date)} · our pipeline · refreshed every 60 s${trimmed ? " · older candles before a gap hidden" : ""}`
+      : `${interval} candles · our pipeline · refreshed every 60 s`
     : `CoinGecko OHLC · ${PERIOD_CONFIG[period].grain}`;
 
   return (
-    <section aria-label="Candlestick chart">
+    <section aria-label="Candlestick chart" className="fringe-top pt-5">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="heading">Candles</h2>
@@ -195,7 +204,7 @@ function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 300 
               ? "Couldn't load candles from our API. It retries every 60 s."
               : "Couldn't load CoinGecko OHLC (the free tier may be rate limited). Try another period in a minute."}
           </ChartNote>
-        ) : points.length < (tracked ? 1 : 2) ? (
+        ) : shown.length < (tracked ? 1 : 2) ? (
           <ChartNote>
             {tracked
               ? `No ${interval} candles for ${symbol} in the last 24 h yet. The pipeline writes one candle per minute that has trades, and rollups fill in as minutes accumulate.`
@@ -204,13 +213,13 @@ function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 300 
         ) : (
           <CandlestickChart
             key={`${symbol ?? coinId}-${tracked ? interval : period}`}
-            data={points}
+            data={shown}
             xDomain={xDomain}
-            xDomainSlotCount={xDomain ? spec.limit : undefined}
+            xDomainSlotCount={slots}
             dateFormat={intraday ? fmtClock : fmtDay}
             aspectRatio="auto"
             style={{ height, touchAction: "pan-y" }}
-            margin={{ top: 8, right: 72, bottom: 32, left: 4 }}
+            margin={{ top: 8, right: 76, bottom: 30, left: 44 }}
             animationDuration={600}
           >
             <Grid horizontal numTicksRows={4} strokeDasharray="2 4" />
@@ -231,6 +240,13 @@ function PriceChartImpl({ symbol, coinId, initialOhlc, liveCandle, height = 300 
       </div>
     </section>
   );
+}
+
+/** The trailing points whose neighbours are at most `maxGapMs` apart. */
+function recentRun<T extends { date: Date }>(pts: T[], maxGapMs: number): T[] {
+  let i = pts.length - 1;
+  while (i > 0 && pts[i].date.getTime() - pts[i - 1].date.getTime() <= maxGapMs) i--;
+  return pts.slice(i);
 }
 
 function ChartNote({ children }: { children: React.ReactNode }) {

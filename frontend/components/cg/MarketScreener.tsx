@@ -33,7 +33,7 @@ export async function MarketScreener({ page = 1, perPage = 10, paginate = false 
               <Th>Coin</Th>
               <Th className="text-right">Price</Th>
               <Th className="hidden text-right md:table-cell">1 h</Th>
-              <Th className="text-right">24 h</Th>
+              <Th className="pr-0 text-right sm:pr-3">24 h</Th>
               <Th className="hidden text-right md:table-cell">7 d</Th>
               <Th className="hidden text-right lg:table-cell">Market cap</Th>
               <Th className="hidden text-right lg:table-cell">Volume 24 h</Th>
@@ -87,7 +87,7 @@ function PageLink({ href, disabled, children }: { href: string; disabled: boolea
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <th className={cn("px-3 py-2.5 text-left font-normal whitespace-nowrap", className)} scope="col">
+    <th className={cn("px-2 py-2.5 text-left font-normal whitespace-nowrap sm:px-3", className)} scope="col">
       {children}
     </th>
   );
@@ -96,21 +96,21 @@ function Th({ children, className = "" }: { children: React.ReactNode; className
 function Row({ c }: { c: MarketCoin }) {
   return (
     <tr className="relative transition-colors hover:bg-mist/60">
-      <td className="py-3 pr-3 pl-0 text-right text-muted-foreground">{c.market_cap_rank ?? "—"}</td>
-      <td className="px-3 py-3">
+      <td className="py-3 pr-2 pl-0 text-right text-muted-foreground sm:pr-3">{c.market_cap_rank ?? "—"}</td>
+      <td className="px-2 py-3 sm:px-3">
         <Link href={`/coins/${c.id}`} className="flex items-center gap-2.5 whitespace-nowrap hover:underline">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={c.image} alt="" width={20} height={20} className="rounded-full" />
-          <span className="text-foreground">{c.name}</span>
-          <span className="caption uppercase">{c.symbol}</span>
+          <span className="max-w-[9rem] truncate text-foreground sm:max-w-none">{c.name}</span>
+          <span className="caption hidden uppercase sm:inline">{c.symbol}</span>
           <span className="absolute inset-0" aria-hidden />
         </Link>
       </td>
-      <td className="px-3 py-3 text-right text-foreground">{fmtUsd(c.current_price)}</td>
+      <td className="px-2 py-3 text-right text-foreground sm:px-3">{fmtUsd(c.current_price)}</td>
       <td className="hidden px-3 py-3 text-right md:table-cell">
         <Change value={c.price_change_percentage_1h_in_currency} />
       </td>
-      <td className="px-3 py-3 text-right">
+      <td className="py-3 pr-0 pl-2 text-right sm:px-3">
         <Change value={c.price_change_percentage_24h_in_currency} />
       </td>
       <td className="hidden px-3 py-3 text-right md:table-cell">

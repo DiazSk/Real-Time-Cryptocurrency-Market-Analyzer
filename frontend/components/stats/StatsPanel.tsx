@@ -28,7 +28,7 @@ export function StatsPanel({ symbol }: { symbol: string }) {
     : [];
 
   return (
-    <section aria-labelledby="stats-heading">
+    <section aria-labelledby="stats-heading" className="fringe-top pt-5">
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <h2 id="stats-heading" className="heading">
           Last 24 h

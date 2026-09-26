@@ -77,3 +77,8 @@ graphify-out/
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# Impeccable design artefacts stay local, except the direction record.
+.impeccable/*
+!.impeccable/seed.json
+!.impeccable/decision*.json

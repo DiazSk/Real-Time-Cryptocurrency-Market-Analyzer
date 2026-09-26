@@ -102,6 +102,12 @@ export const trendingResponseSchema = z.object({
   trending: z.array(trendingItemSchema),
 });
 
+export const tradesResponseSchema = z.object({
+  symbol: z.string(),
+  seconds: z.number(),
+  trades: z.array(z.object({ time: z.number(), price: z.number() })),
+});
+
 // Discriminated union mirroring the WS protocol comment block in websocket.py.
 export const wsMessageSchema = z.discriminatedUnion("type", [
   z.object({

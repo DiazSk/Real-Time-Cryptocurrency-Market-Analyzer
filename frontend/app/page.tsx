@@ -19,7 +19,7 @@ export default function Dashboard() {
       <section aria-labelledby="context-heading" className="border-t bg-mist/40">
         <div className="mx-auto max-w-[1440px] space-y-12 px-4 py-12 sm:px-8 lg:py-16">
           <div>
-            <h2 id="context-heading" className="text-2xl font-light tracking-[-0.015em]">
+            <h2 id="context-heading" className="text-[28px] font-extralight tracking-[-0.02em]">
               Market context
             </h2>
             <p className="caption mt-1">
@@ -41,12 +41,9 @@ export default function Dashboard() {
           </div>
 
           <div>
-            <div className="mb-2 flex items-baseline justify-between gap-4">
+            <div className="mb-2 flex items-center justify-between gap-4">
               <h3 className="heading">Top 10 by market cap</h3>
-              <Link
-                href="/coins"
-                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-              >
+              <Link href="/coins" className="pill pill-sm">
                 All markets <ArrowRight size={14} strokeWidth={1.75} aria-hidden />
               </Link>
             </div>
