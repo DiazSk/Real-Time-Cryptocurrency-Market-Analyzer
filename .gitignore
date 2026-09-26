@@ -69,6 +69,9 @@ produce_test_*.py
 
 # Except: everything under tests/ (the *test*.py rule above targets ad-hoc scripts)
 !/tests/**
+# But keep compiled bytecode ignored under tests/
+/tests/**/__pycache__/
+/tests/**/*.pyc
 
 graphify-out/
 
