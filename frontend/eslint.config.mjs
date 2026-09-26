@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored bklit chart registry code (shadcn add), kept as upstream ships it.
+    // It predates the React Compiler hook rules; our own chart wrappers are linted.
+    "components/charts/**",
   ]),
 ]);
 

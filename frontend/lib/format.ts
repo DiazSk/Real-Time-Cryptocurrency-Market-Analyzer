@@ -34,16 +34,12 @@ export function fmtCount(n: number | null | undefined): string {
   return n.toLocaleString();
 }
 
-export function fmtPct(n: number): string {
-  if (!Number.isFinite(n)) return "—";
+export function fmtPct(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return "—";
   const sign = n > 0 ? "+" : "";
   return `${sign}${n.toFixed(2)}%`;
 }
 
-export function pctClass(n: number): string {
-  if (!Number.isFinite(n) || n === 0) return "text-muted-foreground";
-  return n > 0 ? "text-up" : "text-down";
-}
 
 export function fmtTime(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -61,4 +57,27 @@ export function fmtDateTime(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString();
+}
+
+/** "just now" / "3 min ago" / "2 hours ago"; dates older than 4 weeks as YYYY-MM-DD. */
+export function timeAgo(date: string | number | Date): string {
+  const past = new Date(date);
+  const seconds = Math.floor((Date.now() - past.getTime()) / 1000);
+  if (!Number.isFinite(seconds)) return "—";
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 28) return `${days} d ago`;
+  return past.toISOString().split("T")[0];
+}
+
+/** Compact age for the live provenance line: "2 s", "4 min". */
+export function fmtAge(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  if (seconds < 60) return `${Math.floor(seconds)} s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
+  return `${Math.floor(seconds / 3600)} h`;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { wsMessageSchema, type WsMessage } from "./types";
+import { wsMessageSchema, type TradeFrame, type WsMessage } from "./types";
 
 export const WS_BASE =
   process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000";
@@ -31,6 +31,8 @@ type Listener = (msg: WsMessage) => void;
 interface Options {
   /** Optional callback for every parsed message. */
   onMessage?: Listener;
+  /** Optional callback for every trade tick (~10/s across symbols). */
+  onTrade?: (trade: TradeFrame) => void;
 }
 
 const PING_INTERVAL_MS = 25_000;
@@ -50,18 +52,22 @@ const RECONNECT_MAX_MS = 30_000;
 export function useCryptoSocket(symbol: string, opts: Options = {}) {
   const [status, setStatus] = useState<WsStatus>("connecting");
   const [latestBySymbol, setLatestBySymbol] = useState<Record<string, WsCandle>>({});
+  const [lastTrade, setLastTrade] = useState<TradeFrame | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastFrameAtRef = useRef<number>(Date.now());
+  // Set on every connect(); no render-time Date.now() (react-hooks/purity).
+  const lastFrameAtRef = useRef(0);
   const onMessageRef = useRef(opts.onMessage);
+  const onTradeRef = useRef(opts.onTrade);
 
-  // Keep the latest listener without re-opening the socket on identity churn.
+  // Keep the latest listeners without re-opening the socket on identity churn.
   useEffect(() => {
     onMessageRef.current = opts.onMessage;
-  }, [opts.onMessage]);
+    onTradeRef.current = opts.onTrade;
+  }, [opts.onMessage, opts.onTrade]);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,6 +131,12 @@ export function useCryptoSocket(symbol: string, opts: Options = {}) {
 
         onMessageRef.current?.(parsed);
 
+        if (parsed.type === "trade") {
+          setLastTrade(parsed);
+          onTradeRef.current?.(parsed);
+          return;
+        }
+
         if (parsed.type === "initial_data" || parsed.type === "price_update") {
           const candle = parsed.data as WsCandle;
           if (candle && typeof candle.close === "number") {
@@ -156,5 +168,40 @@ export function useCryptoSocket(symbol: string, opts: Options = {}) {
     };
   }, [symbol]);
 
-  return { status, latestBySymbol };
+  return { status, latestBySymbol, lastTrade };
+}
+
+export type LivePoint = { time: number; value: number };
+
+/** Trade points kept per symbol for the live line (60 s window on screen). */
+const MAX_POINTS = 500;
+
+/**
+ * useCryptoSocket plus the per-symbol state both live surfaces need: last trade
+ * price and a rolling buffer of trade points for every symbol on the stream, so
+ * switching symbols shows a line immediately instead of starting empty.
+ */
+export function useLiveTrades(symbol: string) {
+  const [series, setSeries] = useState<Record<string, LivePoint[]>>({});
+
+  const socket = useCryptoSocket(symbol, {
+    onTrade: (t) =>
+      setSeries((prev) => {
+        const pts = prev[t.symbol] ?? [];
+        const next = [...pts, { time: t.time, value: t.price }];
+        return { ...prev, [t.symbol]: next.length > MAX_POINTS ? next.slice(-MAX_POINTS) : next };
+      }),
+  });
+
+  return { ...socket, series };
+}
+
+/** Wall-clock seconds, re-rendering every `ms`. For "updated 2 s ago" lines. */
+export function useNowSeconds(ms = 1000) {
+  const [now, setNow] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now() / 1000), ms);
+    return () => clearInterval(id);
+  }, [ms]);
+  return now;
 }

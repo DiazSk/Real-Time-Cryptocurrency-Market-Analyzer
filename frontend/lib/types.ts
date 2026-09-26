@@ -124,6 +124,12 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
     timestamp: z.string(),
   }),
   z.object({
+    type: z.literal("trade"),
+    symbol: z.string(),
+    price: z.number(),
+    time: z.number(), // epoch seconds
+  }),
+  z.object({
     type: z.literal("keepalive"),
     timestamp: z.string(),
     connections: z.number().optional(),
@@ -134,3 +140,4 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type WsMessage = z.infer<typeof wsMessageSchema>;
+export type TradeFrame = Extract<WsMessage, { type: "trade" }>;

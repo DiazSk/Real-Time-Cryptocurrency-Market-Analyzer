@@ -14,6 +14,8 @@ import {
   type TrendingItem,
 } from "./types";
 
+export type CandleInterval = "1m" | "5m" | "15m" | "1h";
+
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -33,9 +35,17 @@ export const api = {
 
   historical: (
     symbol: string,
-    opts: { limit?: number; order_by?: "asc" | "desc" } = {},
+    opts: {
+      interval?: CandleInterval;
+      limit?: number;
+      order_by?: "asc" | "desc";
+      /** ISO start; the API defaults to 24 h before now. */
+      start_time?: string;
+    } = {},
   ) => {
     const q = new URLSearchParams();
+    if (opts.interval) q.set("interval", opts.interval);
+    if (opts.start_time) q.set("start_time", opts.start_time);
     if (opts.limit) q.set("limit", String(opts.limit));
     if (opts.order_by) q.set("order_by", opts.order_by);
     const qs = q.toString();
