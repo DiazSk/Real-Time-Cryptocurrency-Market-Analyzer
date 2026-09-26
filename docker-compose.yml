@@ -146,10 +146,19 @@ services:
         jobmanager.memory.process.size: 2048m
         taskmanager.memory.process.size: 1728m
         # Must be >= setParallelism(...) in CryptoPriceAggregator.java
-        # (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
+        # (FLINK_PARALLELISM env, default 4 — matches crypto-trades Kafka partitions).
         # If you bump that constant, bump these too.
         taskmanager.numberOfTaskSlots: 4
         parallelism.default: 4
+        # Job-level settings belong on the JobManager, which does not mount configs/flink-conf.yaml.
+        state.backend.type: rocksdb
+        state.backend.incremental: true
+        state.checkpoints.dir: file:///opt/flink/data/checkpoints
+        state.savepoints.dir: file:///opt/flink/data/savepoints
+        restart-strategy.type: exponential-delay
+        restart-strategy.exponential-delay.initial-backoff: 10s
+        restart-strategy.exponential-delay.max-backoff: 2min
+        restart-strategy.exponential-delay.backoff-multiplier: 2.0
     volumes:
       - flink_data:/opt/flink/data
     networks:
@@ -190,7 +199,7 @@ services:
         jobmanager.memory.process.size: 2048m
         taskmanager.memory.process.size: 1728m
         # Must be >= setParallelism(...) in CryptoPriceAggregator.java
-        # (FLINK_PARALLELISM env, default 4 — matches crypto-prices Kafka partitions).
+        # (FLINK_PARALLELISM env, default 4 — matches crypto-trades Kafka partitions).
         # If you bump that constant, bump these too.
         taskmanager.numberOfTaskSlots: 4
         parallelism.default: 4

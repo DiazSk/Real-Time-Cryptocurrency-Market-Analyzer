@@ -29,20 +29,6 @@ public class PriceAlert implements Serializable {
 
     public PriceAlert() {}
 
-    /** Legacy constructor used by the fixed-threshold AnomalyDetector; removed in Task 7. */
-    public PriceAlert(String symbol, String alertType, BigDecimal priceChangePercent,
-                      BigDecimal openPrice, BigDecimal closePrice, Instant windowStart, Instant windowEnd) {
-        this.symbol = symbol;
-        this.alertType = alertType;
-        this.severity = "LOW";
-        this.priceChangePercent = priceChangePercent;
-        this.oldPrice = openPrice;
-        this.newPrice = closePrice;
-        this.windowStart = windowStart.toString();
-        this.windowEnd = windowEnd.toString();
-        this.timestamp = Instant.now().toString();
-    }
-
     /**
      * Build an alert for a candle whose return scored z against the history.
      * Direction (PRICE_SPIKE vs PRICE_DROP) follows the price move itself (close vs prevClose),

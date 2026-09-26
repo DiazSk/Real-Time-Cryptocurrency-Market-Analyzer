@@ -18,13 +18,10 @@ taskmanager.bind-host: 0.0.0.0
 taskmanager.host: taskmanager
 taskmanager.memory.process.size: 1728m
 taskmanager.memory.flink.size: 1280m
-taskmanager.numberOfTaskSlots: 2
 
 # ==============================================================================
 # Parallelism Configuration
 # ==============================================================================
-
-parallelism.default: 2
 
 # ==============================================================================
 # High Availability Configuration (Disabled for Development)
@@ -48,12 +45,7 @@ state.savepoints.dir: file:///opt/flink/data/savepoints
 # Checkpointing Configuration
 # ==============================================================================
 
-# Enable checkpointing for fault tolerance
-execution.checkpointing.interval: 60000  # 60 seconds
-execution.checkpointing.mode: EXACTLY_ONCE
-execution.checkpointing.timeout: 600000  # 10 minutes
-execution.checkpointing.max-concurrent-checkpoints: 1
-execution.checkpointing.min-pause: 5000  # 5 seconds between checkpoints
+# Checkpointing (interval, mode, timeout) is set in CryptoPriceAggregator.java only.
 
 # ==============================================================================
 # Restart Strategy Configuration
