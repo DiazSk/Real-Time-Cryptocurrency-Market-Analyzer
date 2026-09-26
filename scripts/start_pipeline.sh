@@ -41,6 +41,10 @@ until docker-compose exec -T kafka \
 done
 echo "  Kafka ready."
 
+echo "Ensuring topic crypto-trades (4 partitions, one per Flink subtask)..."
+docker-compose exec -T kafka kafka-topics --bootstrap-server localhost:9092 \
+    --create --if-not-exists --topic crypto-trades --partitions 4 --replication-factor 1
+
 # ── PostgreSQL readiness ──────────────────────────────────────────────────────
 echo "Waiting for PostgreSQL..."
 until docker-compose exec -T postgres \
@@ -57,8 +61,8 @@ done
 echo "  Redis ready."
 
 # ── Start producer ────────────────────────────────────────────────────────────
-echo "Starting crypto price producer..."
-python3 -m src.producers.crypto_price_producer &
+echo "Starting Coinbase trade producer..."
+venv/bin/python -m src.producers.coinbase_trades_producer &
 PRODUCER_PID=$!
 echo "  Producer started (PID $PRODUCER_PID)."
 

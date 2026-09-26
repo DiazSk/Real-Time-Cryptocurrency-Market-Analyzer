@@ -34,7 +34,7 @@ endif
 PYTHON_CMD = $(shell if [ -f "$(PYTHON)" ]; then echo "$(PYTHON)"; else echo "python"; fi)
 
 .PHONY: help setup setup-api setup-dashboard start start-lite stop status health \
-        logs build-flink deploy-flink stop-flink producer api dashboard consumer clean
+        logs build-flink deploy-flink stop-flink topics producer api dashboard consumer clean
 
 help: ## Show this help message
 	@echo ""
@@ -136,10 +136,13 @@ logs-kafka: ## View Kafka logs
 # Application Commands
 # ============================================
 
-producer: ## Run the Python Data Producer
-	@echo "Starting Crypto Price Producer..."
-	$(PYTHON_CMD) scripts/wait_for_services.py kafka --retries 30 --interval 3
-	PYTHONPATH=. $(PYTHON) src/producers/crypto_price_producer.py
+topics: ## Create Kafka topics (idempotent)
+	docker exec kafka kafka-topics --bootstrap-server localhost:9092 \
+		--create --if-not-exists --topic crypto-trades --partitions 4 --replication-factor 1
+
+producer: topics ## Run the Coinbase trade producer
+	@echo "Starting Coinbase trade producer..."
+	PYTHONPATH=. $(PYTHON) -m src.producers.coinbase_trades_producer
 
 api: ## Run the FastAPI Backend
 	@echo "Starting FastAPI Server..."
