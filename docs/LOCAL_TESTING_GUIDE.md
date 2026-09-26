@@ -240,7 +240,7 @@ All configuration can be customized via environment variables:
 | Variable                  | Default         | Description          |
 | ------------------------- | --------------- | -------------------- |
 | `KAFKA_BOOTSTRAP_SERVERS` | `kafka:29092`   | Kafka broker address |
-| `KAFKA_INPUT_TOPIC`       | `crypto-prices` | Input topic name     |
+| `KAFKA_TRADES_TOPIC`      | `crypto-trades` | Input topic name     |
 | `KAFKA_ALERT_TOPIC`       | `crypto-alerts` | Alert topic name     |
 
 ### Redis Settings
@@ -263,7 +263,7 @@ All configuration can be customized via environment variables:
 | Redis               | 6379  | `localhost:6379`      |
 | Flink UI            | 8082  | http://localhost:8082 |
 | FastAPI             | 8000  | http://localhost:8000 |
-| Streamlit Dashboard | 8501  | http://localhost:8501 |
+| Next.js terminal    | 3000  | http://localhost:3000 |
 | pgAdmin             | 5050  | http://localhost:5050 |
 
 ---

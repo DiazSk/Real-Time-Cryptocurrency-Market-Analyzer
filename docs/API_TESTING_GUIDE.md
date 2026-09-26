@@ -116,8 +116,8 @@ ws.onmessage = (e) => {
   "high": 95800.00,
   "low": 95700.00,
   "close": 95780.00,
-  "volume_sum": 78701577213.28,
-  "event_count": 12
+  "volume": 78701577213.28,
+  "trade_count": 12
 }
 ```
 
@@ -132,8 +132,8 @@ ws.onmessage = (e) => {
     "high_price": 95800.00,
     "low_price": 95700.00,
     "close_price": 95780.00,
-    "avg_price": 95757.50,
-    "volume_sum": 78701577213.28,
+    "vwap": 95757.50,
+    "volume": 78701577213.28,
     "trade_count": 12
   }
 ]
