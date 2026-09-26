@@ -174,8 +174,8 @@ bash scripts/teardown.sh         # removes all containers and volumes (destructi
 
 For low-RAM environments (no 8GB+ for Flink/RocksDB), `src/consumers/simple_consumer.py`
 replaces the whole Flink job with a single Python process: it reads `crypto-trades`,
-validates and dedups trades the same way Flink does, aggregates real 1-minute OHLCV +
-VWAP candles by event time, and writes the same `raw_trades` / `price_aggregates_1m`
+validates and dedups trades the same way Flink does, decides in-memory when a
+1-minute window has closed, and writes the same `raw_trades` / `price_aggregates_1m`
 rows and Redis `crypto:{SYMBOL}:latest` + `crypto:updates` Pub/Sub payloads that
 `JdbcSinks.java` / `RedisSinkFunction.java` produce — the FastAPI layer doesn't know
 which mode is running.
@@ -189,9 +189,16 @@ make api            # FastAPI on :8000
 
 **Lite mode does not detect anomalies** — there is no z-score detector, so
 `price_alerts` stays empty. The [Delivery guarantees](#delivery-guarantees) table
-above describes the Flink path only; lite mode's Postgres writes are the same
-idempotent upsert/`DO NOTHING` SQL, but the watermark is a wall-clock stand-in
-(2 s allowed lateness) rather than Flink's real event-time watermark.
+above describes the Flink path only; lite mode is **at-least-once**: Kafka offsets
+are committed only after a trade's `raw_trades` insert has committed in Postgres, so
+a crash mid-batch replays that trade rather than losing it (absorbed by
+`raw_trades`' own idempotent `ON CONFLICT DO NOTHING`). Unlike the in-process OHLCV
+sums a naive port would keep, each closed window's candle is **recomputed straight
+from `raw_trades`** at close time (`GROUP BY` over the window's rows), not from
+in-memory state — so a replay after a restart can only ever produce the complete,
+correct candle for that window, never a partial one overwriting a good one. The
+watermark itself is a wall-clock stand-in (2 s allowed lateness) rather than
+Flink's real event-time watermark.
 
 ---
 

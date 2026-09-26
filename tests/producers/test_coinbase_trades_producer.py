@@ -200,3 +200,12 @@ def test_no_redis_client_is_a_noop():
     p = CoinbaseTradeProducer(SYMBOLS, FakeKafka(), "crypto-trades")
     p.handle_message(json.dumps(match()))  # must not raise with redis_client=None
     assert len(p.kafka.sent) == 1
+
+
+def test_build_redis_client_has_bounded_socket_timeouts():
+    from src.producers.coinbase_trades_producer import _build_redis_client
+    client = _build_redis_client()
+    kwargs = client.connection_pool.connection_kwargs
+    assert kwargs["socket_connect_timeout"] == 0.5
+    assert kwargs["socket_timeout"] == 0.5
+    assert kwargs["health_check_interval"] > 0

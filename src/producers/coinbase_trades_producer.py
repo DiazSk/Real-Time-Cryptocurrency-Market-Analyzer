@@ -217,6 +217,23 @@ class CoinbaseTradeProducer:
             backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
 
 
+def _build_redis_client() -> redis.Redis:
+    """Sync redis-py client for the crypto:trades tick publish.
+
+    ponytail: redis-py's publish() is a blocking socket call made directly on this
+    asyncio loop (the same thread that reads the Coinbase WebSocket and sends to
+    Kafka) — it is not offloaded to a thread. The timeouts below are the ceiling on
+    how long a hung Redis can stall the whole producer (~1s), not a fix for the
+    blocking itself. Upgrade path if that ceiling is ever too tight: switch to
+    redis.asyncio, matching what the API already uses.
+    """
+    return redis.Redis(
+        host=REDIS_HOST, port=REDIS_PORT,
+        socket_connect_timeout=0.5, socket_timeout=0.5,
+        health_check_interval=30,
+    )
+
+
 async def amain() -> None:
     conn = await asyncpg.connect(**POSTGRES_CONNECT_KWARGS)
     try:
@@ -225,7 +242,7 @@ async def amain() -> None:
         await conn.close()
 
     kafka = KafkaProducer(**KAFKA_PRODUCER_CONFIG)
-    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
+    redis_client = _build_redis_client()
     producer = CoinbaseTradeProducer(symbols, kafka, KAFKA_TOPIC_TRADES, redis_client=redis_client)
     try:
         await producer.run_forever()

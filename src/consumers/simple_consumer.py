@@ -2,10 +2,21 @@
 Lite-mode OHLCV consumer — replaces Flink for low-RAM environments.
 
 Reads the producer's `crypto-trades` topic, validates and deduplicates trades
-the same way Flink does, aggregates real 1-minute OHLCV + VWAP candles by
-event time, and writes to PostgreSQL + Redis with the exact schema/JSON shape
-the Flink sinks use (JdbcSinks.java, RedisSinkFunction.java), so the FastAPI
-layer is unaffected by which mode produced the data.
+the same way Flink does, decides in-memory when a 1-minute window has closed,
+then asks Postgres to (re)compute that candle's OHLCV + VWAP straight from the
+persisted `raw_trades` rows and writes to Redis with the exact schema/JSON
+shape the Flink sinks use (JdbcSinks.java, RedisSinkFunction.java), so the
+FastAPI layer is unaffected by which mode produced the data.
+
+Delivery is at-least-once, matching the Flink path (see README "Delivery
+guarantees"): Kafka offsets are committed manually, only after a trade's
+raw_trades insert has committed, so a crash mid-batch replays the trade
+rather than losing it. `raw_trades`'s own `ON CONFLICT DO NOTHING` makes that
+replay idempotent. Candles are always recomputed FROM raw_trades (not from
+in-memory sums), so a partial replay after a restart can only ever produce
+the correct, complete candle for that window — never a partial one written
+over a good one. MinuteAggregator's only job is deciding WHEN a window has
+closed; it does not compute OHLCV values itself.
 
 ponytail: lite mode has no z-score anomaly detector. `price_alerts` stays
 empty when running this instead of Flink; the trend is real (VWAP, OHLC) but
@@ -16,7 +27,7 @@ Redis key:     crypto:{SYMBOL}:latest
 Redis value:   JSON with camelCase fields (matches Candle.java / RedisSinkFunction)
 Redis TTL:     300 seconds
 Pub/Sub:       crypto:updates channel (drives WebSocket push)
-Postgres:      price_aggregates_1m UPSERT + raw_trades insert (matches JdbcSinks.java)
+Postgres:      price_aggregates_1m UPSERT (aggregated from raw_trades) + raw_trades insert
 """
 
 import json
@@ -28,7 +39,6 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from typing import Optional
 
 import psycopg2
@@ -85,7 +95,8 @@ def parse_trade(raw: str) -> Trade:
 
 
 # ---------------------------------------------------------------------------
-# Pure, testable 1-minute OHLCV aggregator (event time, out-of-order tolerant)
+# Pure, testable window-close decision (event time, out-of-order tolerant).
+# OHLCV values are NOT computed here — see _CANDLE_UPSERT_FROM_RAW_SQL below.
 # ---------------------------------------------------------------------------
 
 
@@ -94,74 +105,6 @@ class ClosedWindow:
     symbol: str
     window_start: datetime
     window_end: datetime
-    open: Decimal
-    high: Decimal
-    low: Decimal
-    close: Decimal
-    volume: Decimal
-    quote_volume: Decimal
-    vwap: Decimal
-    trade_count: int
-
-    def to_redis_json(self) -> str:
-        """camelCase JSON matching Candle.java / RedisSinkFunction (epoch-second windows)."""
-        return json.dumps({
-            "symbol": self.symbol,
-            "windowStart": self.window_start.timestamp(),
-            "windowEnd": self.window_end.timestamp(),
-            "open": float(self.open),
-            "high": float(self.high),
-            "low": float(self.low),
-            "close": float(self.close),
-            "vwap": float(self.vwap),
-            "volume": float(self.volume),
-            "quoteVolume": float(self.quote_volume),
-            "tradeCount": self.trade_count,
-        })
-
-
-class _WindowAcc:
-    """Mutable accumulator for one (symbol, window_start) bucket."""
-
-    __slots__ = (
-        "symbol", "window_start", "window_end", "open", "high", "low", "close",
-        "volume", "quote_volume", "trade_count", "_open_key", "_close_key",
-    )
-
-    def __init__(self, symbol: str, window_start: datetime):
-        self.symbol = symbol
-        self.window_start = window_start
-        self.window_end = window_start + timedelta(minutes=1)
-        self.open = self.high = self.low = self.close = None
-        self.volume = Decimal(0)
-        self.quote_volume = Decimal(0)
-        self.trade_count = 0
-        self._open_key = None
-        self._close_key = None
-
-    def merge(self, trade: Trade) -> None:
-        key = (trade.event_time, trade.trade_id)
-        if self._open_key is None or key < self._open_key:
-            self._open_key = key
-            self.open = trade.price
-        if self._close_key is None or key > self._close_key:
-            self._close_key = key
-            self.close = trade.price
-        if self.high is None or trade.price > self.high:
-            self.high = trade.price
-        if self.low is None or trade.price < self.low:
-            self.low = trade.price
-        self.volume += trade.size
-        self.quote_volume += trade.price * trade.size
-        self.trade_count += 1
-
-    def to_closed_window(self) -> ClosedWindow:
-        return ClosedWindow(
-            symbol=self.symbol, window_start=self.window_start, window_end=self.window_end,
-            open=self.open, high=self.high, low=self.low, close=self.close,
-            volume=self.volume, quote_volume=self.quote_volume,
-            vwap=self.quote_volume / self.volume, trade_count=self.trade_count,
-        )
 
 
 def _floor_minute(ts: datetime) -> datetime:
@@ -169,19 +112,22 @@ def _floor_minute(ts: datetime) -> datetime:
 
 
 class MinuteAggregator:
-    """Real 1-minute OHLCV + VWAP aggregation by event time, per symbol.
+    """Decides WHEN a 1-minute window has closed, per symbol.
 
-    Dedups by last-seen trade_id per symbol (older/repeat trade_ids are dropped).
-    A window closes once a trade for its symbol arrives at or after
-    window_end + lateness, or when `flush(now)` is called with wall-clock time
-    at or after that point — both are watermark stand-ins for Flink's
-    BoundedOutOfOrdernessWatermarks.
+    Dedups by last-seen trade_id per symbol (older/repeat trade_ids are dropped
+    before they can affect window timing). A window closes once a trade for its
+    symbol arrives at or after window_end + lateness, or when `flush(now)` is
+    called with wall-clock time at or after that point — both are watermark
+    stand-ins for Flink's BoundedOutOfOrdernessWatermarks. It intentionally does
+    not accumulate OHLCV values: those are recomputed from raw_trades on close
+    (see the module docstring), so this class stays a thin, pure decision maker.
     """
 
     def __init__(self, lateness_seconds: float = WATERMARK_LATENESS_SECONDS):
         self._lateness = timedelta(seconds=lateness_seconds)
         self._last_trade_id: dict[str, int] = {}
-        self._windows: dict[tuple[str, datetime], _WindowAcc] = {}
+        # (symbol, window_start) -> window_end, for every window seen but not yet closed.
+        self._open_windows: dict[tuple[str, datetime], datetime] = {}
 
     def add_trade(self, trade: Trade) -> list[ClosedWindow]:
         last = self._last_trade_id.get(trade.symbol)
@@ -189,41 +135,72 @@ class MinuteAggregator:
             return []  # duplicate or older trade_id
         self._last_trade_id[trade.symbol] = trade.trade_id
 
-        key = (trade.symbol, _floor_minute(trade.event_time))
-        acc = self._windows.setdefault(key, _WindowAcc(*key))
-        acc.merge(trade)
+        window_start = _floor_minute(trade.event_time)
+        key = (trade.symbol, window_start)
+        self._open_windows.setdefault(key, window_start + timedelta(minutes=1))
 
         return self._close_due(trade.symbol, trade.event_time)
 
     def flush(self, now: datetime) -> list[ClosedWindow]:
         closed = []
-        for symbol in {k[0] for k in self._windows}:
+        for symbol in {k[0] for k in self._open_windows}:
             closed.extend(self._close_due(symbol, now))
         return closed
 
     def close_all(self) -> list[ClosedWindow]:
         """Force-close every open window, regardless of watermark. Used at shutdown."""
-        closed = [acc.to_closed_window() for acc in self._windows.values()]
-        self._windows.clear()
+        closed = [ClosedWindow(symbol, window_start, window_end)
+                  for (symbol, window_start), window_end in self._open_windows.items()]
+        self._open_windows.clear()
         return closed
 
     def _close_due(self, symbol: str, watermark: datetime) -> list[ClosedWindow]:
         due = [
-            k for k, acc in self._windows.items()
-            if k[0] == symbol and acc.window_end + self._lateness <= watermark
+            k for k, window_end in self._open_windows.items()
+            if k[0] == symbol and window_end + self._lateness <= watermark
         ]
-        return [self._windows.pop(k).to_closed_window() for k in sorted(due, key=lambda k: k[1])]
+        return [
+            ClosedWindow(k[0], k[1], self._open_windows.pop(k))
+            for k in sorted(due, key=lambda k: k[1])
+        ]
 
 
 # ---------------------------------------------------------------------------
 # I/O: Postgres + Redis sinks (mirror JdbcSinks.java / RedisSinkFunction.java)
 # ---------------------------------------------------------------------------
 
-_CANDLE_UPSERT_SQL = """
+_RAW_TRADE_SQL = """
+INSERT INTO raw_trades (crypto_id, trade_id, price, size, side, sequence, event_time, ingest_time)
+SELECT id, %s, %s, %s, %s, %s, %s, %s FROM cryptocurrencies WHERE symbol = %s
+ON CONFLICT (crypto_id, trade_id, event_time) DO NOTHING
+"""
+
+# Recomputes the candle straight from the persisted raw_trades rows for the window,
+# rather than from in-memory sums — so a replay after a crash-restart (which can
+# only ever see a subset or the full set of that window's trades, never spurious
+# ones, thanks to raw_trades' own idempotent insert) always produces the complete,
+# correct candle. It can never write a partial candle over a complete one.
+_CANDLE_UPSERT_FROM_RAW_SQL = """
 INSERT INTO price_aggregates_1m
     (crypto_id, window_start, window_end, open_price, high_price, low_price,
      close_price, vwap, volume, quote_volume, trade_count)
-SELECT id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s FROM cryptocurrencies WHERE symbol = %s
+SELECT
+    crypto_id,
+    %s,
+    %s,
+    (array_agg(price ORDER BY event_time, trade_id))[1],
+    max(price),
+    min(price),
+    (array_agg(price ORDER BY event_time DESC, trade_id DESC))[1],
+    sum(price * size) / sum(size),
+    sum(size),
+    sum(price * size),
+    count(*)
+FROM raw_trades
+WHERE crypto_id = (SELECT id FROM cryptocurrencies WHERE symbol = %s)
+  AND event_time >= %s
+  AND event_time < %s
+GROUP BY crypto_id
 ON CONFLICT (crypto_id, window_start) DO UPDATE SET
     window_end   = EXCLUDED.window_end,
     open_price   = EXCLUDED.open_price,
@@ -235,12 +212,8 @@ ON CONFLICT (crypto_id, window_start) DO UPDATE SET
     quote_volume = EXCLUDED.quote_volume,
     trade_count  = EXCLUDED.trade_count,
     updated_at   = now()
-"""
-
-_RAW_TRADE_SQL = """
-INSERT INTO raw_trades (crypto_id, trade_id, price, size, side, sequence, event_time, ingest_time)
-SELECT id, %s, %s, %s, %s, %s, %s, %s FROM cryptocurrencies WHERE symbol = %s
-ON CONFLICT (crypto_id, trade_id, event_time) DO NOTHING
+RETURNING window_start, window_end, open_price, high_price, low_price, close_price,
+          vwap, volume, quote_volume, trade_count
 """
 
 
@@ -253,19 +226,43 @@ def insert_raw_trade(conn, trade: Trade) -> None:
     conn.commit()
 
 
-def upsert_candle(conn, w: ClosedWindow) -> None:
+def upsert_candle_from_raw_trades(conn, w: ClosedWindow) -> Optional[tuple]:
+    """Recomputes and upserts the candle for `w` from raw_trades. Returns the
+    upserted row (via RETURNING), or None if raw_trades had no rows for this
+    window yet (e.g. the trade that should have been inserted is still pending
+    retry — the next close attempt, or a later replay, will pick it up)."""
     with conn.cursor() as cur:
-        cur.execute(_CANDLE_UPSERT_SQL, (
-            w.window_start, w.window_end, w.open, w.high, w.low, w.close,
-            w.vwap, w.volume, w.quote_volume, w.trade_count, w.symbol,
+        cur.execute(_CANDLE_UPSERT_FROM_RAW_SQL, (
+            w.window_start, w.window_end, w.symbol, w.window_start, w.window_end,
         ))
+        row = cur.fetchone()
     conn.commit()
-    log.info("Postgres: upserted %s candle @ %s", w.symbol, w.window_start.isoformat())
+    if row is not None:
+        log.info("Postgres: upserted %s candle @ %s", w.symbol, w.window_start.isoformat())
+    return row
 
 
-def publish_candle(r: redis_lib.Redis, w: ClosedWindow) -> None:
-    key = f"crypto:{w.symbol}:latest"
-    data = w.to_redis_json()
+def _row_to_candle_json(symbol: str, row: tuple) -> str:
+    """camelCase JSON matching Candle.java / RedisSinkFunction (epoch-second windows)."""
+    window_start, window_end, open_, high, low, close, vwap, volume, quote_volume, trade_count = row
+    return json.dumps({
+        "symbol": symbol,
+        "windowStart": window_start.timestamp(),
+        "windowEnd": window_end.timestamp(),
+        "open": float(open_),
+        "high": float(high),
+        "low": float(low),
+        "close": float(close),
+        "vwap": float(vwap),
+        "volume": float(volume),
+        "quoteVolume": float(quote_volume),
+        "tradeCount": trade_count,
+    })
+
+
+def publish_candle(r: redis_lib.Redis, symbol: str, row: tuple) -> None:
+    key = f"crypto:{symbol}:latest"
+    data = _row_to_candle_json(symbol, row)
     r.setex(key, REDIS_TTL, data)
     r.publish(PUBSUB_CHANNEL, data)
     log.debug("Redis: wrote %s (TTL=%ds)", key, REDIS_TTL)
@@ -273,34 +270,51 @@ def publish_candle(r: redis_lib.Redis, w: ClosedWindow) -> None:
 
 def flush_closed_window(conn, r: redis_lib.Redis, w: ClosedWindow) -> None:
     try:
-        publish_candle(r, w)
-    except Exception as e:
-        log.error("Redis flush failed for %s: %s", w.symbol, e)
-    try:
-        upsert_candle(conn, w)
+        row = upsert_candle_from_raw_trades(conn, w)
     except Exception as e:
         log.error("Postgres flush failed for %s: %s", w.symbol, e)
         try:
             conn.rollback()
         except Exception:
             pass
+        return
+
+    if row is None:
+        log.warning(
+            "No raw_trades rows yet for %s window %s-%s; skipping this close (will "
+            "retry on the next trade or flush for %s)",
+            w.symbol, w.window_start.isoformat(), w.window_end.isoformat(), w.symbol,
+        )
+        return
+
+    try:
+        publish_candle(r, w.symbol, row)
+    except Exception as e:
+        log.error("Redis flush failed for %s: %s", w.symbol, e)
 
 
 # ---------------------------------------------------------------------------
-# Background timer: advance the watermark by wall clock when trades are sparse
+# Background timer: advance the watermark by wall clock when trades are sparse.
+# Runs on its own Postgres connection — psycopg2 connections are not safe to
+# share across threads, and this timer thread runs concurrently with the main
+# consumer thread's use of `conn`.
 # ---------------------------------------------------------------------------
 
 _shutdown = threading.Event()
 
 
-def _start_flush_timer(agg: MinuteAggregator, lock: threading.Lock, conn, r, interval: float = FLUSH_INTERVAL_SECONDS):
+def _connect_pg():
+    return psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASS)
+
+
+def _start_flush_timer(agg: MinuteAggregator, lock: threading.Lock, timer_conn, r, interval: float = FLUSH_INTERVAL_SECONDS):
     def _loop():
         while not _shutdown.is_set():
             now = datetime.now(timezone.utc)
             with lock:
                 closed = agg.flush(now)
             for w in closed:
-                flush_closed_window(conn, r, w)
+                flush_closed_window(timer_conn, r, w)
             time.sleep(interval)
     t = threading.Thread(target=_loop, daemon=True, name="flush-timer")
     t.start()
@@ -314,7 +328,8 @@ def _start_flush_timer(agg: MinuteAggregator, lock: threading.Lock, conn, r, int
 
 def run():
     log.info("Connecting to PostgreSQL %s:%d/%s …", PG_HOST, PG_PORT, PG_DB)
-    conn = psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASS)
+    conn = _connect_pg()
+    timer_conn = _connect_pg()  # dedicated connection for the flush-timer thread
     log.info("Postgres connected.")
 
     log.info("Connecting to Redis %s:%d …", REDIS_HOST, REDIS_PORT)
@@ -328,7 +343,12 @@ def run():
         bootstrap_servers=KAFKA_BOOTSTRAP,
         group_id=KAFKA_GROUP,
         auto_offset_reset="earliest",
-        enable_auto_commit=True,
+        # At-least-once: commit an offset only after that trade's raw_trades insert
+        # has committed in Postgres, so a crash mid-batch replays the trade instead
+        # of silently losing it (raw_trades' own ON CONFLICT DO NOTHING absorbs the
+        # replay; the candle upsert always recomputes from raw_trades, never from
+        # in-memory sums, so a replay can only ever complete a candle, not corrupt one).
+        enable_auto_commit=False,
         value_deserializer=lambda v: v.decode("utf-8"),
         consumer_timeout_ms=1000,
     )
@@ -337,7 +357,7 @@ def run():
     agg = MinuteAggregator()
     lock = threading.Lock()
     stats = {"invalid": 0}
-    _start_flush_timer(agg, lock, conn, r)
+    _start_flush_timer(agg, lock, timer_conn, r)
 
     def _handle_signal(sig, frame):
         log.info("Signal %d received — flushing and exiting …", sig)
@@ -348,6 +368,7 @@ def run():
             flush_closed_window(conn, r, w)
         consumer.close()
         conn.close()
+        timer_conn.close()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _handle_signal)
@@ -362,16 +383,25 @@ def run():
             except ValueError as e:
                 stats["invalid"] += 1
                 log.warning("Dropping invalid trade: %s", e)
+                # A poison-pill message will never parse; commit past it so the
+                # consumer doesn't get stuck retrying it forever.
+                consumer.commit()
                 continue
 
             try:
                 insert_raw_trade(conn, trade)
             except Exception as e:
-                log.error("raw_trades insert failed for %s: %s", trade.symbol, e)
+                log.error(
+                    "raw_trades insert failed for %s: %s — leaving offset uncommitted for retry",
+                    trade.symbol, e,
+                )
                 try:
                     conn.rollback()
                 except Exception:
                     pass
+                continue  # do not commit, do not advance the aggregator: redelivery retries this trade
+
+            consumer.commit()
 
             with lock:
                 closed = agg.add_trade(trade)
