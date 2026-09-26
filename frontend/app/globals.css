@@ -6,10 +6,11 @@
  * The text field is achromatic (cloud, mist, slate). Colour lives only in the
  * mint -> rose -> violet fringe, and only on edges of LIVE things. Green/red are
  * reserved for price direction and always travel with an arrow icon.
- * Dark ("night cloud") follows prefers-color-scheme; there is no toggle.
+ * Dark ("night cloud") is driven by <html data-theme>: the saved choice from the
+ * header toggle, else the OS preference (set before paint in app/layout.tsx).
  */
 
-@custom-variant dark (@media (prefers-color-scheme: dark));
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
   --font-sans: var(--font-onest), ui-sans-serif, sans-serif;
@@ -108,32 +109,30 @@
   --chart-5: #f19ab9;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0e131a; /* night cloud */
-    --card: #141a23;
-    --mist: #1a212b;
-    --foreground: #e7ebf0;
-    --muted-foreground: #97a1ae; /* 7.1:1 on ground */
-    --border: #252d39;
+:root[data-theme="dark"] {
+  --background: #0e131a; /* night cloud */
+  --card: #141a23;
+  --mist: #1a212b;
+  --foreground: #e7ebf0;
+  --muted-foreground: #97a1ae; /* 7.1:1 on ground */
+  --border: #252d39;
 
-    --mint: #7fd6c0;
-    --rose: #f3a3c2;
-    --violet: #b3a6ff;
-    --violet-ink: #b8acff;
-    --violet-edge: #8b7ce6;
-    --fringe-1: #5fe0bd;
-    --fringe-2: #ff8fbb;
-    --fringe-3: #a594ff;
+  --mint: #7fd6c0;
+  --rose: #f3a3c2;
+  --violet: #b3a6ff;
+  --violet-ink: #b8acff;
+  --violet-edge: #8b7ce6;
+  --fringe-1: #5fe0bd;
+  --fringe-2: #ff8fbb;
+  --fringe-3: #a594ff;
 
-    --up: #4cd49a;
-    --down: #ff7d90;
+  --up: #4cd49a;
+  --down: #ff7d90;
 
-    --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 24px -12px rgb(0 0 0 / 0.55);
-    --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 18px 36px -14px rgb(0 0 0 / 0.65);
-    --glass: rgb(20 26 35 / 0.8);
-    color-scheme: dark;
-  }
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 24px -12px rgb(0 0 0 / 0.55);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.35), 0 18px 36px -14px rgb(0 0 0 / 0.65);
+  --glass: rgb(20 26 35 / 0.8);
+  color-scheme: dark;
 }
 
 @layer base {

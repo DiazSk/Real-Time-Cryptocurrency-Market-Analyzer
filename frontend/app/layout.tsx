@@ -30,13 +30,21 @@ FORM: Iridescent Edge, from my ordered list, seed 156c1908
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->`;
 
+// Runs before first paint: saved choice (header toggle) wins, else follow the OS,
+// and keep following OS changes until the visitor picks a theme.
+const THEME_SCRIPT = `(function(){try{var r=document.documentElement,m=matchMedia('(prefers-color-scheme: dark)'),s=localStorage.getItem('theme');r.dataset.theme=s==='light'||s==='dark'?s:(m.matches?'dark':'light');m.addEventListener('change',function(e){if(!localStorage.getItem('theme'))r.dataset.theme=e.matches?'dark':'light'})}catch(e){}})()`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${onest.variable} h-full antialiased`}>
+    // suppressHydrationWarning: THEME_SCRIPT sets data-theme before React hydrates.
+    <html lang="en" className={`${onest.variable} h-full antialiased`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="flex min-h-full flex-col">
         <div hidden dangerouslySetInnerHTML={{ __html: CONTRACT }} />
         <Providers>

@@ -2,7 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+/** Flip <html data-theme> and remember it; the icon swaps via the dark: variant, so no React state. */
+function toggleTheme() {
+  const root = document.documentElement;
+  const next = root.dataset.theme === "dark" ? "light" : "dark";
+  root.dataset.theme = next;
+  try {
+    localStorage.setItem("theme", next);
+  } catch {
+    // private mode: the toggle still works for this page view
+  }
+}
 
 const NAV = [
   { href: "/", label: "Live", match: (p: string) => p === "/" },
@@ -45,6 +58,16 @@ export function Header() {
               </Link>
             );
           })}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label="Toggle dark mode"
+            title="Toggle dark mode"
+            className="ml-1 flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--mist)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--violet-edge)]"
+          >
+            <Moon aria-hidden className="size-4 dark:hidden" strokeWidth={1.5} />
+            <Sun aria-hidden className="hidden size-4 dark:block" strokeWidth={1.5} />
+          </button>
         </nav>
       </div>
     </header>
