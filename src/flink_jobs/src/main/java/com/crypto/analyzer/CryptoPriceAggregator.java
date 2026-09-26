@@ -331,9 +331,9 @@ public class CryptoPriceAggregator {
                     return "{}".getBytes(StandardCharsets.UTF_8);
                 }
                 
-                if (alert.getSymbol() == null || alert.getAlertType() == null) {
-                    LOG.error("PriceAlert has null critical fields: symbol={}, alertType={}", 
-                            alert.getSymbol(), alert.getAlertType());
+                if (alert.symbol == null || alert.alertType == null) {
+                    LOG.error("PriceAlert has null critical fields: symbol={}, alertType={}",
+                            alert.symbol, alert.alertType);
                 }
                 
                 byte[] bytes = OBJECT_MAPPER.writeValueAsBytes(alert);
@@ -342,7 +342,7 @@ public class CryptoPriceAggregator {
                 
             } catch (Exception e) {
                 LOG.error("Alert serialization error for symbol {}: {}", 
-                        alert != null ? alert.getSymbol() : "null", 
+                        alert != null ? alert.symbol : "null",
                         e.getMessage(), e);
                 return "{\"error\":\"serialization_failed\"}".getBytes(StandardCharsets.UTF_8);
             }
