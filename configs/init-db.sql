@@ -71,7 +71,7 @@ SELECT add_retention_policy('price_aggregates_1m', INTERVAL '90 days', if_not_ex
 -- ============================================
 -- 4. Rollups: continuous aggregates over the 1-minute candles
 -- ============================================
-CREATE MATERIALIZED VIEW IF NOT EXISTS candles_5m WITH (timescaledb.continuous) AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS candles_5m WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
 SELECT crypto_id,
        time_bucket(INTERVAL '5 minutes', window_start) AS bucket,
        first(open_price, window_start)                 AS open_price,
@@ -86,7 +86,7 @@ FROM price_aggregates_1m
 GROUP BY crypto_id, bucket
 WITH NO DATA;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS candles_15m WITH (timescaledb.continuous) AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS candles_15m WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
 SELECT crypto_id,
        time_bucket(INTERVAL '15 minutes', window_start) AS bucket,
        first(open_price, window_start)                  AS open_price,
@@ -101,7 +101,7 @@ FROM price_aggregates_1m
 GROUP BY crypto_id, bucket
 WITH NO DATA;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS candles_1h WITH (timescaledb.continuous) AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS candles_1h WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
 SELECT crypto_id,
        time_bucket(INTERVAL '1 hour', window_start) AS bucket,
        first(open_price, window_start)              AS open_price,

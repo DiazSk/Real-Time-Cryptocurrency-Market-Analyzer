@@ -59,18 +59,20 @@ def _from_row(row) -> LatestPriceResponse:
 
 
 async def _latest(symbols: list[str], redis_client, pool) -> tuple[dict, dict]:
-    """Newest candle per symbol: Redis first, one PostgreSQL query for all misses.
-    Returns (candles by symbol, source by symbol)."""
+    """Newest candle per symbol: Redis first (one MGET for all symbols), one
+    PostgreSQL query for all misses. Returns (candles by symbol, source by symbol)."""
     candles, sources = {}, {}
-    for sym in symbols:
-        try:
-            raw = await redis_client.get(f"crypto:{sym}:latest")
-            if raw is not None:
+    try:
+        raw_values = await redis_client.mget([f"crypto:{sym}:latest" for sym in symbols])
+        for sym, raw in zip(symbols, raw_values):
+            if raw is None:
+                continue
+            try:
                 candles[sym], sources[sym] = _from_cache(raw), "redis"
-        except RedisError as e:
-            logger.warning("Redis unavailable for %s, falling back to PostgreSQL: %s", sym, e)
-        except (ValueError, KeyError) as e:
-            logger.warning("Corrupt cache entry for %s, falling back to PostgreSQL: %s", sym, e)
+            except (ValueError, KeyError) as e:
+                logger.warning("Corrupt cache entry for %s, falling back to PostgreSQL: %s", sym, e)
+    except RedisError as e:
+        logger.warning("Redis unavailable, falling back to PostgreSQL: %s", e)
 
     misses = [s for s in symbols if s not in candles]
     if misses:

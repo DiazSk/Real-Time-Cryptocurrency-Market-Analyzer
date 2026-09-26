@@ -48,7 +48,7 @@ docker-compose exec -T kafka kafka-topics --bootstrap-server localhost:9092 \
 # ── PostgreSQL readiness ──────────────────────────────────────────────────────
 echo "Waiting for PostgreSQL..."
 until docker-compose exec -T postgres \
-    pg_isready -U "${POSTGRES_USER:-crypto_user}" &>/dev/null; do
+    pg_isready -h 127.0.0.1 -U "${POSTGRES_USER:-crypto_user}" -d "${POSTGRES_DB:-crypto_db}" &>/dev/null; do
   sleep 3
 done
 echo "  PostgreSQL ready."
@@ -61,10 +61,17 @@ done
 echo "  Redis ready."
 
 # ── Start producer ────────────────────────────────────────────────────────────
+mkdir -p logs
 echo "Starting Coinbase trade producer..."
-venv/bin/python -m src.producers.coinbase_trades_producer &
+venv/bin/python -m src.producers.coinbase_trades_producer >> logs/producer.log 2>&1 &
 PRODUCER_PID=$!
 echo "  Producer started (PID $PRODUCER_PID)."
+
+sleep 5
+if ! kill -0 "$PRODUCER_PID" 2>/dev/null; then
+  echo "ERROR: producer exited immediately. Check logs/producer.log for details." >&2
+  exit 1
+fi
 
 echo ""
 echo "Pipeline is running."

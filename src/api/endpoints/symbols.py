@@ -9,9 +9,6 @@ from fastapi import APIRouter, Depends, Query, Request
 from ..database import get_db
 from ..registry import symbols_of
 import asyncpg
-import logging
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Symbols"])
 
@@ -35,11 +32,11 @@ async def list_symbols(request: Request):
 @router.get(
     "/trending",
     summary="Trending symbols by 24h price change",
-    description="24h change from the candles_1h continuous aggregate (hourly granularity; the newest "
-                "bucket can lag up to an hour). Empty until 24h of candles exist.",
+    description="24h change from the candles_1h continuous aggregate (real-time aggregation, so the "
+                "newest bucket includes the current hour so far). Needs about 24-25 hours of candle "
+                "history before results appear.",
 )
 async def trending_symbols(
-    request: Request,
     limit: int = Query(10, ge=1, le=50, description="Max rows to return (1-50)"),
     direction: str = Query("abs", pattern="^(abs|gainers|losers)$",
                            description="Sort: abs (biggest movers), gainers, or losers"),

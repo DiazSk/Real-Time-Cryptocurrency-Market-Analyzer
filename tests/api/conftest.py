@@ -40,6 +40,9 @@ class FakeRedis:
     async def get(self, key):
         return self.store.get(key)
 
+    async def mget(self, keys):
+        return [self.store.get(key) for key in keys]
+
 
 @pytest.fixture
 def fakes():

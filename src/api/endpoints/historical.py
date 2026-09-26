@@ -54,7 +54,7 @@ async def get_historical_prices(
     ),
     limit: int = Query(100, ge=1, le=1000, description="Maximum records to return (1-1000)"),
     offset: int = Query(0, ge=0, description="Records to skip for pagination"),
-    order_by: str = Query("desc", regex="^(asc|desc)$", description="Sort order"),
+    order_by: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
     conn: asyncpg.Connection = Depends(get_db)
 ) -> List[HistoricalPriceResponse]:
     symbol = require_symbol(symbols_of(request), symbol)

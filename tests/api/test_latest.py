@@ -46,10 +46,10 @@ def test_cache_miss_falls_back_to_postgres(fakes):
 def test_redis_outage_still_serves_postgres(fakes):
     client, conn, redis = fakes
 
-    async def broken_get(key):
+    async def broken_mget(keys):
         raise RedisConnectionError("redis down")
 
-    redis.get = broken_get
+    redis.mget = broken_mget
     conn.fetch_result = [db_row()]
     r = client.get("/api/v1/latest/BTC")
     assert r.status_code == 200
