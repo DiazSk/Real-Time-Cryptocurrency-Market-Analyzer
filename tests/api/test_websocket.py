@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 from src.api.endpoints.websocket import ConnectionManager
 from src.api.pubsub import pubsub_dispatcher
@@ -7,9 +8,20 @@ from src.api.pubsub import pubsub_dispatcher
 class FakeWebSocket:
     def __init__(self):
         self.sent = []
+        self.closed = False
 
     async def send_json(self, message):
         self.sent.append(message)
+
+    async def close(self):
+        self.closed = True
+
+
+class HangingWebSocket(FakeWebSocket):
+    """Never resolves send_json — stands in for a stalled client."""
+
+    async def send_json(self, message):
+        await asyncio.sleep(10)
 
 
 def test_trade_message_reaches_symbol_and_all_subscribers():
@@ -70,6 +82,7 @@ def test_ws_stats_reports_pubsub_active(fakes):
 
         async def listen(self):
             await asyncio.sleep(3600)
+            yield  # pragma: no cover — makes this an async generator, never reached
 
         async def unsubscribe(self, *a):
             pass
@@ -83,6 +96,7 @@ def test_ws_stats_reports_pubsub_active(fakes):
 
     async def scenario():
         pubsub_dispatcher.start(_FakeRedis())
+        await asyncio.sleep(0.01)  # let the task run up to its subscribe() before checking
         try:
             r = client.get("/ws/stats")
             assert r.json()["pubsub_active"] is True
@@ -92,3 +106,23 @@ def test_ws_stats_reports_pubsub_active(fakes):
         assert r.json()["pubsub_active"] is False
 
     asyncio.run(scenario())
+
+
+def test_slow_client_does_not_block_delivery_and_is_dropped():
+    manager = ConnectionManager()
+    manager.SEND_TIMEOUT_SECONDS = 0.05  # keep the test fast
+    healthy = FakeWebSocket()
+    slow = HangingWebSocket()
+    manager.connections["ALL"] = {healthy, slow}
+    manager.connections["BTC"] = set()
+    manager.total_connections = 2
+
+    started = time.monotonic()
+    asyncio.run(manager.broadcast_to_symbol("BTC", {"type": "trade", "symbol": "BTC"}))
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0  # not the 10s the hanging socket would take
+    assert healthy.sent == [{"type": "trade", "symbol": "BTC"}]
+    assert slow not in manager.connections["ALL"]
+    assert slow.closed is True
+    assert manager.total_connections == 1

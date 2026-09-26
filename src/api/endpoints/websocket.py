@@ -38,7 +38,11 @@ class ConnectionManager:
     Manages WebSocket connections for real-time price streaming
     Enhanced with Redis Pub/Sub for event-driven updates
     """
-    
+
+    # A stalled client must not head-of-line-block every other client/symbol —
+    # broadcast_to_symbol runs inside the single pub/sub dispatcher task.
+    SEND_TIMEOUT_SECONDS = 2.0
+
     def __init__(self):
         # Store connections by symbol filter; per-symbol sets are added lazily in connect()
         self.connections: dict[str, Set[WebSocket]] = {"ALL": set()}
@@ -80,36 +84,38 @@ class ConnectionManager:
     
     async def broadcast_to_symbol(self, symbol: str, message: dict):
         """
-        Broadcast message to all clients subscribed to a specific symbol
+        Broadcast message to all clients subscribed to a specific symbol, plus every
+        ALL subscriber. Fans out concurrently with a per-send timeout so one stalled
+        client can't head-of-line-block delivery to everyone else — this runs inside
+        the single pub/sub dispatcher task, so a serial, unbounded await here would
+        stall every symbol, not just this one.
         """
         symbol = symbol.upper()
-        
-        # Send to ALL subscribers
-        disconnected = set()
-        if "ALL" in self.connections:
-            for connection in self.connections["ALL"]:
-                try:
-                    await connection.send_json(message)
-                except Exception as e:
-                    logger.error(f"Error broadcasting to ALL client: {e}")
-                    disconnected.add(connection)
-        
-        # Send to symbol-specific subscribers
-        if symbol in self.connections:
-            for connection in self.connections[symbol]:
-                try:
-                    await connection.send_json(message)
-                except Exception as e:
-                    logger.error(f"Error broadcasting to {symbol} client: {e}")
-                    disconnected.add(connection)
-        
-        # Clean up disconnected clients
+
+        targets = set(self.connections.get("ALL", ())) | set(self.connections.get(symbol, ()))
+        if not targets:
+            return
+
+        async def _send(connection):
+            try:
+                await asyncio.wait_for(connection.send_json(message), timeout=self.SEND_TIMEOUT_SECONDS)
+                return None
+            except Exception as e:
+                logger.error(f"Error broadcasting to client: {e}")
+                return connection
+
+        results = await asyncio.gather(*(_send(c) for c in targets))
+        disconnected = {c for c in results if c is not None}
+
         for conn in disconnected:
             for sym in self.connections:
-                if conn in self.connections[sym]:
-                    self.connections[sym].remove(conn)
-                    self.total_connections -= 1
-        
+                self.connections[sym].discard(conn)
+            self.total_connections -= 1
+            try:
+                await conn.close()
+            except Exception as e:
+                logger.debug(f"Error closing dropped client: {e}")
+
         if disconnected:
             logger.info(f"Cleaned up {len(disconnected)} disconnected clients")
     
