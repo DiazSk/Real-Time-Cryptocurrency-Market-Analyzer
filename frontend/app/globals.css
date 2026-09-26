@@ -226,7 +226,8 @@
 }
 
 @layer components {
-  /* Pill control with a 1px iridescent hairline; violet when active. */
+  /* Pill control with a neutral 1px hairline; violet when active.
+     The iridescent fringe is reserved for pipeline-live surfaces (DESIGN.md, Live Fringe Rule). */
   .pill {
     display: inline-flex;
     align-items: center;
@@ -238,7 +239,7 @@
     border: 1px solid transparent;
     background:
       linear-gradient(var(--card), var(--card)) padding-box,
-      var(--fringe-vivid) border-box;
+      linear-gradient(var(--border), var(--border)) border-box;
     color: var(--foreground);
     font-size: 0.875rem;
     box-shadow: var(--shadow-soft);

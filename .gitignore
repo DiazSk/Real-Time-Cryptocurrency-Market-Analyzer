@@ -81,4 +81,5 @@ graphify-out/
 # Impeccable design artefacts stay local, except the direction record.
 .impeccable/*
 !.impeccable/seed.json
+!.impeccable/design.json
 !.impeccable/decision*.json

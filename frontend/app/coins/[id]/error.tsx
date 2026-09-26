@@ -25,7 +25,7 @@ export default function CoinDetailError({
 
   return (
     <main className="flex flex-1 items-center justify-center px-4 py-16">
-      <div className="surface fringe-top w-full max-w-md p-8 text-center">
+      <div className="surface w-full max-w-md p-8 text-center">
         <Icon className="mx-auto text-muted-foreground" size={28} strokeWidth={1.5} aria-hidden />
         <h1 className="mt-4 text-2xl font-light tracking-[-0.015em]">
           {isRateLimit ? "CoinGecko rate limit reached" : "This coin didn't load"}
