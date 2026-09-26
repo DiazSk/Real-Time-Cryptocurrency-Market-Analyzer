@@ -170,6 +170,29 @@ bash scripts/stop_pipeline.sh    # stops producer + Flink job + docker-compose s
 bash scripts/teardown.sh         # removes all containers and volumes (destructive)
 ```
 
+### Lite mode (no Flink)
+
+For low-RAM environments (no 8GB+ for Flink/RocksDB), `src/consumers/simple_consumer.py`
+replaces the whole Flink job with a single Python process: it reads `crypto-trades`,
+validates and dedups trades the same way Flink does, aggregates real 1-minute OHLCV +
+VWAP candles by event time, and writes the same `raw_trades` / `price_aggregates_1m`
+rows and Redis `crypto:{SYMBOL}:latest` + `crypto:updates` Pub/Sub payloads that
+`JdbcSinks.java` / `RedisSinkFunction.java` produce — the FastAPI layer doesn't know
+which mode is running.
+
+```bash
+make start-lite     # Kafka/Zookeeper/Postgres/Redis/frontend, no Flink
+make producer       # Coinbase trade producer (same one full mode uses)
+make consumer       # lite-mode OHLCV consumer, in place of the Flink job
+make api            # FastAPI on :8000
+```
+
+**Lite mode does not detect anomalies** — there is no z-score detector, so
+`price_alerts` stays empty. The [Delivery guarantees](#delivery-guarantees) table
+above describes the Flink path only; lite mode's Postgres writes are the same
+idempotent upsert/`DO NOTHING` SQL, but the watermark is a wall-clock stand-in
+(2 s allowed lateness) rather than Flink's real event-time watermark.
+
 ---
 
 ## Web Interfaces

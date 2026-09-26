@@ -30,7 +30,7 @@ endif
 # Fallback if venv doesn't exist
 PYTHON_CMD = $(shell if [ -f "$(PYTHON)" ]; then echo "$(PYTHON)"; else echo "python"; fi)
 
-.PHONY: help setup setup-api setup-all start stop status health logs build-flink deploy-flink deploy-flink-fresh stop-flink topics producer api test clean
+.PHONY: help setup setup-api setup-all start start-lite stop status health logs build-flink deploy-flink deploy-flink-fresh stop-flink topics producer consumer api test clean
 
 help: ## Show this help message
 	@echo ""
@@ -43,10 +43,10 @@ help: ## Show this help message
 	@grep -E '^setup[a-zA-Z_-]*:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Docker Commands:"
-	@grep -E '^(start|stop|status|health|logs)[a-zA-Z_-]*:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^(start|start-lite|stop|status|health|logs)[a-zA-Z_-]*:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Application Commands:"
-	@grep -E '^(topics|producer|api|test):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+	@grep -E '^(topics|producer|consumer|api|test):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Flink Commands:"
 	@grep -E '^(build-flink|deploy-flink|deploy-flink-fresh|stop-flink):.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -85,6 +85,18 @@ start: ## Start Docker services (full mode - 8GB+ RAM required)
 	@echo "  make producer    - Start data ingestion"
 	@echo "  make api         - Start REST/WebSocket API"
 
+start-lite: ## Start lite mode (no Flink — Kafka/Postgres/Redis/frontend only, 8GB RAM not required)
+	@echo "Starting Lite Mode (no Flink)..."
+	$(DC) -f docker-compose-lite.yml up -d
+	@echo ""
+	@echo "Waiting for services to be healthy..."
+	$(PYTHON_CMD) scripts/wait_for_services.py all --retries 60 --interval 5
+	@echo ""
+	@echo "Services started! Next steps:"
+	@echo "  make producer    - Start data ingestion"
+	@echo "  make consumer    - Start the lite-mode OHLCV consumer (replaces Flink)"
+	@echo "  make api         - Start REST/WebSocket API"
+
 stop: ## Stop all Docker containers
 	$(DC) down
 
@@ -120,6 +132,10 @@ topics: ## Create Kafka topics (idempotent)
 producer: topics ## Run the Coinbase trade producer
 	@echo "Starting Coinbase trade producer..."
 	PYTHONPATH=. $(PYTHON) -m src.producers.coinbase_trades_producer
+
+consumer: topics ## Run the lite-mode OHLCV consumer (no-Flink replacement)
+	@echo "Starting lite-mode consumer..."
+	PYTHONPATH=. $(PYTHON) -m src.consumers.simple_consumer
 
 api: ## Run the FastAPI Backend
 	@echo "Starting FastAPI Server..."

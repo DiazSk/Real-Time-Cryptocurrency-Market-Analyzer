@@ -4,6 +4,7 @@ pydantic==2.10.3                 # Trade validation (shared with the API)
 asyncpg==0.30.0                  # Symbol registry reads (shared with the API)
 
 redis==5.2.1
+psycopg2-binary==2.9.13           # lite-mode consumer's sync Postgres driver (Python 3.12 wheels)
 
 python-dotenv==1.0.1
 
