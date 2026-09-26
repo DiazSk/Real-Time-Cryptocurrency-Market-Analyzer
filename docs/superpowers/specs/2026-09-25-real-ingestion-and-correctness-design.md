@@ -32,6 +32,18 @@ This sub-project makes the pipeline process **real trade data correctly**, so th
 - `MATIC-USD` is **delisted** on Coinbase. `POL-USD` is online, so the symbol set becomes BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, **POL**.
 - `GET https://api.exchange.coinbase.com/products/{id}/candles?granularity=60` returns up to about 300 candles per call, with no auth. This is used by sub-project 3.
 
+## Corrections found while planning (2026-09-25)
+
+These override the sections below where they conflict.
+
+1. **Gap detection uses `trade_id`, not `sequence`.** A 25 s probe showed `sequence` jumping by 2–99+ between consecutive matches of one product, because it is shared with order-book events the `matches` channel doesn't carry. `trade_id` went up by exactly 1 in all 133 cases. `sequence` is still stored in `raw_trades`.
+2. **Flink dedups trades before windowing.** `DedupByTradeId` keeps the last `trade_id` per symbol in keyed state and drops anything not newer. Without it, a producer retry duplicate would inflate candle volume, not just `raw_trades`. This is correct because the producer keeps per-partition order (`max_in_flight_requests_per_connection=1`).
+3. **The JobManager never loads `configs/flink-conf.yaml`.** Only the TaskManager mounts it. As a result the RocksDB backend, exponential-delay restarts and `state.checkpoints.dir` in that file do not apply to the job, and the code sends checkpoints to `file:///opt/flink/checkpoints`, which is not on the shared `flink_data` volume. Fix: put the job-level settings in the JobManager's `FLINK_PROPERTIES` and drop `setCheckpointStorage(...)` from the code.
+4. **Reconnects use a plain backoff loop** that resets after a connection has been healthy for 60 s. `tenacity` is removed because nothing else uses it.
+5. **The alert JSON fields `open_price`/`close_price` become `old_price`/`new_price`** (the previous close and this close), matching the `price_alerts` columns.
+6. **Acceptance criterion 4's fixture** is `scripts/inject_test_alert.py`. It publishes synthetic trades for an inactive `TEST` symbol in real time for about 35 minutes (warm-up needs 30 one-minute returns in event time), ending in a +5% jump.
+7. **Stale `KAFKA_TOPIC=crypto-prices` in existing `.env` files:** the producer reads a new variable, `KAFKA_TRADES_TOPIC` (default `crypto-trades`).
+
 ## 1. Ingestion
 
 ### Symbol source of truth
