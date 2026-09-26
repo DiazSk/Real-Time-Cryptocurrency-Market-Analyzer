@@ -43,9 +43,27 @@ class FakeKafka:
         return FakeFuture()
 
 
+class FakeRedis:
+    def __init__(self, fail=False):
+        self.published = []
+        self.fail = fail
+
+    def publish(self, channel, message):
+        if self.fail:
+            raise ConnectionError("redis unreachable")
+        self.published.append((channel, message))
+
+
 @pytest.fixture
 def producer():
     return CoinbaseTradeProducer(SYMBOLS, FakeKafka(), "crypto-trades")
+
+
+@pytest.fixture
+def redis_producer():
+    r = FakeRedis()
+    p = CoinbaseTradeProducer(SYMBOLS, FakeKafka(), "crypto-trades", redis_client=r)
+    return p, r
 
 
 def test_parse_match_maps_coinbase_fields():
@@ -149,3 +167,36 @@ def test_stale_kafka_topic_env_is_ignored(monkeypatch):
     monkeypatch.delenv("KAFKA_TRADES_TOPIC", raising=False)
     import src.config
     assert importlib.reload(src.config).KAFKA_TOPIC_TRADES == "crypto-trades"
+
+
+def test_new_trade_is_published_to_redis_trades_channel(redis_producer):
+    p, r = redis_producer
+    p.handle_message(json.dumps(match()))
+    assert len(r.published) == 1
+    channel, message = r.published[0]
+    assert channel == "crypto:trades"
+    body = json.loads(message)
+    assert body["symbol"] == "BTC"
+    assert body["price"] == 83982.07
+    assert body["time"] == datetime(2026, 9, 26, 4, 7, 20, 310372, tzinfo=timezone.utc).timestamp()
+
+
+def test_duplicate_trade_is_not_published_to_redis(redis_producer):
+    p, r = redis_producer
+    p.handle_message(json.dumps(match()))
+    p.handle_message(json.dumps(match()))  # same trade_id, deduped
+    assert len(r.published) == 1
+
+
+def test_redis_failure_does_not_stop_kafka_publish(caplog):
+    r = FakeRedis(fail=True)
+    p = CoinbaseTradeProducer(SYMBOLS, FakeKafka(), "crypto-trades", redis_client=r)
+    p.handle_message(json.dumps(match()))  # must not raise
+    assert len(p.kafka.sent) == 1
+    assert r.published == []
+
+
+def test_no_redis_client_is_a_noop():
+    p = CoinbaseTradeProducer(SYMBOLS, FakeKafka(), "crypto-trades")
+    p.handle_message(json.dumps(match()))  # must not raise with redis_client=None
+    assert len(p.kafka.sent) == 1

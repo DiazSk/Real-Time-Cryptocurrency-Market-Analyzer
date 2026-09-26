@@ -46,3 +46,9 @@ POSTGRES_CONNECT_KWARGS = {
 }
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# ============================================
+# Redis (crypto:trades tick stream for the live line chart)
+# ============================================
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))

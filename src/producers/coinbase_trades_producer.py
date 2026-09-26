@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Literal, Optional
 
 import asyncpg
+import redis
 from kafka import KafkaProducer
 from pydantic import AwareDatetime, BaseModel, Field, field_serializer
 from websockets.asyncio.client import connect
@@ -32,6 +33,8 @@ from src.config import (
     KAFKA_TOPIC_TRADES,
     LOG_LEVEL,
     POSTGRES_CONNECT_KWARGS,
+    REDIS_HOST,
+    REDIS_PORT,
 )
 from src.symbols import Symbol, fetch_symbols
 
@@ -101,16 +104,25 @@ class TradeGapTracker:
         return gap
 
 
+TRADES_PUBSUB_CHANNEL = "crypto:trades"
+REDIS_WARN_INTERVAL_SECONDS = 30  # rate-limit "redis is down" log spam
+
+
 class CoinbaseTradeProducer:
-    def __init__(self, symbols: dict[str, Symbol], kafka_producer, topic: str, ws_url: str = COINBASE_WS_URL):
+    def __init__(
+        self, symbols: dict[str, Symbol], kafka_producer, topic: str,
+        ws_url: str = COINBASE_WS_URL, redis_client=None,
+    ):
         self.symbol_by_product = {s.coinbase_product: s.symbol for s in symbols.values()}
         self.kafka = kafka_producer
         self.topic = topic
         self.ws_url = ws_url
+        self.redis_client = redis_client
         self.gaps = TradeGapTracker()
         self.stats = {"published": 0, "invalid": 0, "duplicates": 0, "send_errors": 0, "reconnects": 0}
         self._sleep = asyncio.sleep
         self._last_stats_log = time.monotonic()
+        self._last_redis_warn = 0.0
 
     def handle_message(self, raw: str) -> None:
         """Validate one WebSocket frame and publish it if it is a new trade."""
@@ -147,6 +159,23 @@ class CoinbaseTradeProducer:
             self._on_send_error
         )
         self.stats["published"] += 1
+        self._publish_trade(trade)
+
+    def _publish_trade(self, trade: Trade) -> None:
+        """Best-effort tick publish for the live line chart. Never blocks the Kafka path."""
+        if self.redis_client is None:
+            return
+        try:
+            self.redis_client.publish(TRADES_PUBSUB_CHANNEL, json.dumps({
+                "symbol": trade.symbol,
+                "price": float(trade.price),
+                "time": trade.event_time.timestamp(),
+            }))
+        except Exception as e:
+            now = time.monotonic()
+            if now - self._last_redis_warn >= REDIS_WARN_INTERVAL_SECONDS:
+                self._last_redis_warn = now
+                logger.warning("Redis publish to %s failed: %s", TRADES_PUBSUB_CHANNEL, e)
 
     def _on_send_error(self, exc) -> None:
         self.stats["send_errors"] += 1
@@ -196,7 +225,8 @@ async def amain() -> None:
         await conn.close()
 
     kafka = KafkaProducer(**KAFKA_PRODUCER_CONFIG)
-    producer = CoinbaseTradeProducer(symbols, kafka, KAFKA_TOPIC_TRADES)
+    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT)
+    producer = CoinbaseTradeProducer(symbols, kafka, KAFKA_TOPIC_TRADES, redis_client=redis_client)
     try:
         await producer.run_forever()
     finally:
