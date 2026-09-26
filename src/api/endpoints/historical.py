@@ -29,6 +29,25 @@ def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
+# interval -> (relation, time column, bucket width for continuous aggregates).
+# 1m reads price_aggregates_1m directly (already has window_start/window_end);
+# the others read the continuous aggregates, keyed by `bucket` instead, so
+# window_end has to be computed as bucket + width.
+INTERVALS: dict[str, tuple[str, str, Optional[str]]] = {
+    "1m":  ("price_aggregates_1m", "window_start", None),
+    "5m":  ("candles_5m", "bucket", "5 minutes"),
+    "15m": ("candles_15m", "bucket", "15 minutes"),
+    "1h":  ("candles_1h", "bucket", "1 hour"),
+}
+
+
+def _interval_source(interval: str) -> tuple[str, str, str]:
+    """Returns (relation, time_col, window_end SQL expression) for a validated interval."""
+    relation, time_col, width = INTERVALS[interval]
+    window_end_expr = "p.window_end" if width is None else f"p.{time_col} + INTERVAL '{width}'"
+    return relation, time_col, window_end_expr
+
+
 @router.get(
     "/{symbol}",
     response_model=List[HistoricalPriceResponse],
@@ -55,6 +74,7 @@ async def get_historical_prices(
     limit: int = Query(100, ge=1, le=1000, description="Maximum records to return (1-1000)"),
     offset: int = Query(0, ge=0, description="Records to skip for pagination"),
     order_by: str = Query("desc", pattern="^(asc|desc)$", description="Sort order"),
+    interval: str = Query("1m", pattern="^(1m|5m|15m|1h)$", description="Candle interval"),
     conn: asyncpg.Connection = Depends(get_db)
 ) -> List[HistoricalPriceResponse]:
     symbol = require_symbol(symbols_of(request), symbol)
@@ -73,12 +93,13 @@ async def get_historical_prices(
 
     try:
         order_clause = "ASC" if order_by.lower() == "asc" else "DESC"
+        relation, time_col, window_end_expr = _interval_source(interval)
 
         sql = f"""
             SELECT
                 c.symbol,
-                p.window_start,
-                p.window_end,
+                p.{time_col} AS window_start,
+                {window_end_expr} AS window_end,
                 p.open_price,
                 p.high_price,
                 p.low_price,
@@ -87,23 +108,23 @@ async def get_historical_prices(
                 p.volume,
                 p.quote_volume,
                 p.trade_count
-            FROM price_aggregates_1m p
+            FROM {relation} p
             JOIN cryptocurrencies c ON p.crypto_id = c.id
             WHERE c.symbol = $1
-                AND p.window_start >= $2
-                AND p.window_start <= $3
-            ORDER BY p.window_start {order_clause}
+                AND p.{time_col} >= $2
+                AND p.{time_col} <= $3
+            ORDER BY p.{time_col} {order_clause}
             LIMIT $4 OFFSET $5
         """
         rows = await conn.fetch(sql, symbol, start_time, end_time, limit, offset)
 
-        count_sql = """
+        count_sql = f"""
             SELECT COUNT(*)
-            FROM price_aggregates_1m p
+            FROM {relation} p
             JOIN cryptocurrencies c ON p.crypto_id = c.id
             WHERE c.symbol = $1
-                AND p.window_start >= $2
-                AND p.window_start <= $3
+                AND p.{time_col} >= $2
+                AND p.{time_col} <= $3
         """
         total_count = await conn.fetchval(count_sql, symbol, start_time, end_time)
 
@@ -156,6 +177,7 @@ async def get_price_stats(
     symbol: str,
     start_time: Optional[datetime] = Query(None),
     end_time: Optional[datetime] = Query(None),
+    interval: str = Query("1m", pattern="^(1m|5m|15m|1h)$", description="Candle interval"),
     conn: asyncpg.Connection = Depends(get_db)
 ):
     symbol = require_symbol(symbols_of(request), symbol)
@@ -164,18 +186,19 @@ async def get_price_stats(
     start_time = _as_utc(start_time) or end_time - timedelta(hours=24)
 
     try:
-        sql = """
+        relation, time_col, _ = _interval_source(interval)
+        sql = f"""
             SELECT
                 MIN(p.low_price)  AS lowest,
                 MAX(p.high_price) AS highest,
                 SUM(p.quote_volume) / NULLIF(SUM(p.volume), 0) AS average,       -- VWAP over the range
                 SUM(p.quote_volume)                            AS total_volume,  -- USD
                 COUNT(*)          AS candle_count
-            FROM price_aggregates_1m p
+            FROM {relation} p
             JOIN cryptocurrencies c ON p.crypto_id = c.id
             WHERE c.symbol = $1
-                AND p.window_start >= $2
-                AND p.window_start <= $3
+                AND p.{time_col} >= $2
+                AND p.{time_col} <= $3
         """
         row = await conn.fetchrow(sql, symbol, start_time, end_time)
 
