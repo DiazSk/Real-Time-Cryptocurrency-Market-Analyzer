@@ -5,7 +5,7 @@ FastAPI application entry point for the Crypto Market Analyzer API.
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import sys
 
@@ -77,7 +77,7 @@ async def health_check(request: Request):
     all_healthy = all(v == "healthy" for v in services.values())
     return {
         "status": "healthy" if all_healthy else "degraded",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "services": services
     }
 
@@ -90,7 +90,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={
             "error": "Internal server error",
             "detail": str(exc),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     )
 

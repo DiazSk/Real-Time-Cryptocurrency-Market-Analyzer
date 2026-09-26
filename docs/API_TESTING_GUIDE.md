@@ -152,8 +152,10 @@ ws.onmessage = (e) => {
     "high": 95800.00,
     "low": 95700.00,
     "close": 95780.00,
-    "volumeSum": 78701577213.28,
-    "eventCount": 12
+    "vwap": 95765.32,
+    "volume": 823.41,
+    "quoteVolume": 78701577213.28,
+    "tradeCount": 12
   },
   "timestamp": "2025-11-16T12:30:15.123456"
 }

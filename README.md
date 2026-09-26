@@ -36,7 +36,7 @@ FastAPI (asyncpg + redis.asyncio) ── REST + WebSocket ──► Next.js term
 | TimescaleDB retention | Native `add_retention_policy`: 7 days for raw_trades, 90 days for candles and rollups |
 | Async API drivers | `asyncpg` + `redis.asyncio`; connection pools stored on `app.state` via lifespan |
 | Next.js data fetching | Server Components + `fetch` ISR for CoinGecko; TanStack Query for backend REST; `useCryptoSocket` for WS |
-| Frontend WS resilience | Exponential-backoff reconnect (1 s → 30 s), 25 s ping, 60 s dead-frame timeout, Zod-validated frames |
+| Frontend WS resilience | Exponential-backoff reconnect (1 s → 30 s), 25 s ping, 60 s dead-frame timeout, validated WS envelope (`ws.ts` casts `data`) |
 | Checkpointing | 30 s, EXACTLY_ONCE, RocksDB incremental, retained on cancel, shared flink_data volume |
 | Dedup | Keyed last-seen trade_id per symbol (DedupByTradeId) + raw_trades primary key |
 | Source validation | Flink's `TradeDeserializer` drops malformed JSON, Kafka tombstones and records with an invalid `side` at the source (`Trade.isValid`), so one bad record can't crash-loop the job |
@@ -57,7 +57,9 @@ FastAPI (asyncpg + redis.asyncio) ── REST + WebSocket ──► Next.js term
 
 - The producer uses `kafka-python-ng`, which has no idempotent producer; a retried send can duplicate a trade in Kafka. Flink's `DedupByTradeId` and the `raw_trades` primary key remove those duplicates. Upgrade path: `confluent-kafka` with `enable.idempotence=true`.
 - A minute with no trades produces no candle (no gap-filling yet).
-- `/api/v1/trending` has hourly granularity and stays empty until 24 hours of candles exist.
+- `/api/v1/trending` uses real-time aggregation (hourly buckets that include the current hour so far), but the 24h-ago comparison bucket still needs about 24-25 hours of candle history before results appear.
+- A stateless restart (`deploy-flink-fresh`, or a job started without a savepoint) re-aggregates the in-progress minute from partial trades and resets the anomaly detector's 30-minute warm-up; the affected candle can be rebuilt from `raw_trades`.
+- Any error frame from Coinbase stops the producer (by design for rejected subscriptions); rerun it after checking the log.
 - Single Kafka broker and single TaskManager: this is a local development topology.
 
 ---
@@ -373,14 +375,14 @@ The Next.js terminal is driven from `frontend/` using standard npm scripts (`npm
 │   │   └── main.py
 │   ├── flink_jobs/                               # Java Maven project
 │   │   └── src/main/java/com/crypto/analyzer/
-│   │       ├── CryptoPriceAggregator.java        # Main job: dedup + OHLCV + anomaly detection + sinks
+│   │       ├── CryptoPriceAggregator.java        # Main job: dedup + OHLCV + anomaly detection + Kafka alert sink
 │   │       ├── functions/
 │   │       │   ├── CandleAggregator.java         # 1-min OHLCV + VWAP aggregation
 │   │       │   ├── DedupByTradeId.java           # Keyed last-seen trade_id dedup
 │   │       │   └── ZScoreAnomalyDetector.java    # EWMA z-score anomaly detector, State TTL
 │   │       ├── models/
 │   │       └── sinks/
-│   │           └── JdbcSinks.java                # TimescaleDB + Kafka alert sinks
+│   │           └── JdbcSinks.java                # The three TimescaleDB sinks (raw_trades, candles, alerts)
 │   └── producers/
 │       └── coinbase_trades_producer.py           # Coinbase WebSocket trade producer
 ├── tests/                                        # Python unit tests (producers, API, symbols)
@@ -412,7 +414,7 @@ The Next.js terminal is driven from `frontend/` using standard npm scripts (`npm
 │   └── package.json
 ├── docker-compose.yml                            # All services incl. `frontend`
 ├── requirements.txt                              # Producer + shared + test deps
-└── requirements-api.txt                          # FastAPI, uvicorn, pydantic-settings
+└── requirements-api.txt                          # FastAPI, uvicorn, redis, pydantic-settings
 ```
 
 ---
