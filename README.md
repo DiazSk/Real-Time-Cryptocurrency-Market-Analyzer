@@ -39,7 +39,9 @@ FastAPI (asyncpg + redis.asyncio) ── REST + WebSocket ──► Next.js term
 | Frontend WS resilience | Exponential-backoff reconnect (1 s → 30 s), 25 s ping, 60 s dead-frame timeout, Zod-validated frames |
 | Checkpointing | 30 s, EXACTLY_ONCE, RocksDB incremental, retained on cancel, shared flink_data volume |
 | Dedup | Keyed last-seen trade_id per symbol (DedupByTradeId) + raw_trades primary key |
-| Anomaly detection | EWMA z-score of 1-min log returns, 30-candle warm-up, \|z\| > 4, severity bands |
+| Source validation | Flink's `TradeDeserializer` drops malformed JSON, Kafka tombstones and records with an invalid `side` at the source (`Trade.isValid`), so one bad record can't crash-loop the job |
+| Anomaly detection | EWMA z-score of 1-min log returns, 30-candle warm-up, `trade_count ≥ 5`, \|z\| > 4, severity bands |
+| Alert direction & severity | Direction (`PRICE_SPIKE` / `PRICE_DROP`) comes from the sign of the price move (close vs. previous close); severity comes from `\|z\|`: LOW 4–6, MEDIUM 6–8, HIGH ≥ 8 |
 
 ### Delivery guarantees
 
@@ -154,11 +156,10 @@ docker compose up -d --build frontend
 ```
 
 > **Note:** if you've already initialised the Postgres volume on an older
-> version of this project (BTC/ETH only), the expanded `cryptocurrencies`
-> seed in `configs/init-db.sql` won't re-run. Either insert the new symbols
-> by hand or run `scripts/teardown.sh` to drop the volume and re-init.
->
-> Schema changed in this version (trade-level tables, continuous aggregates). Run `scripts/teardown.sh` once to re-initialise an existing volume.
+> version of this project, the schema won't re-run automatically (new
+> trade-level tables, continuous aggregates, expanded `cryptocurrencies`
+> seed in `configs/init-db.sql`). Run `scripts/teardown.sh` once to drop
+> the volume and re-initialise it.
 
 ### 6. Stop / teardown
 
@@ -302,7 +303,7 @@ WS   /ws/prices/{symbol}                  Real-time stream via Redis Pub/Sub
 Symbols come from the `cryptocurrencies` table, read by the producer and API at startup and resolved by Flink inside its SQL. Add a symbol by inserting a row (with its `coinbase_product`) and restarting the producer and API.
 The frontend never hard-codes the list — it reads `/api/v1/symbols` at runtime.
 
-All responses include `X-Process-Time-Ms` (middleware) and `X-Request-ID` (UUID4, for tracing).
+All responses include `X-Process-Time-Ms` (middleware) and `X-Request-ID` (UUID4, for tracing). `/api/v1/latest/*` is Redis-first with a TimescaleDB fallback on a cache miss, a corrupt cache entry, or a Redis outage; which one served the request is reported in the `X-Data-Source: redis|postgres` response header.
 
 ---
 
@@ -333,7 +334,7 @@ Frontend-specific variables live in `frontend/.env.local` — see [Frontend envi
 ```bash
 make setup-all      # Create venv and install all dependencies
 make start          # docker-compose up (full mode)
-make stop           # docker-compose stop
+make stop           # docker-compose down
 make status         # Container status
 make health         # Service health checks
 make logs           # Flink TaskManager logs
@@ -342,7 +343,7 @@ make producer       # Run Python producer
 make api            # Run FastAPI (uvicorn)
 make test           # Run Python and Flink unit tests
 make build-flink    # mvn clean package
-make deploy-flink   # Build + submit Flink job
+make deploy-flink   # Copy the built JAR and submit (cancels a running job first); run `make build-flink` first
 make stop-flink     # Cancel running Flink job
 make clean          # Remove containers, volumes, build artifacts
 ```
@@ -411,7 +412,7 @@ The Next.js terminal is driven from `frontend/` using standard npm scripts (`npm
 │   └── package.json
 ├── docker-compose.yml                            # All services incl. `frontend`
 ├── requirements.txt                              # Producer + shared + test deps
-└── requirements-api.txt                          # FastAPI, asyncpg, redis
+└── requirements-api.txt                          # FastAPI, uvicorn, pydantic-settings
 ```
 
 ---

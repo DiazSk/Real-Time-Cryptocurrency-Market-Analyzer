@@ -4,61 +4,28 @@ This guide addresses common issues when running the Real-Time Cryptocurrency Mar
 
 ## System Requirements
 
-### Full Mode (with Flink)
-
 - **RAM**: 8-16GB minimum (10GB+ recommended)
 - **Docker Desktop**: Allocate at least 6GB to Docker
 - **Disk**: 10GB free space for Docker volumes
 
-### Lite Mode (without Flink)
-
-- **RAM**: 4-8GB minimum
-- **Docker Desktop**: Allocate at least 3GB to Docker
-- **Disk**: 5GB free space for Docker volumes
-
-## Quick Start (Cross-Platform)
-
-The project includes cross-platform Python scripts that work on **Windows, Linux, and macOS**.
-
-### Using the Python Launcher (Recommended)
+## Quick Start
 
 ```bash
-# Start full mode (8GB+ RAM required)
-python run.py start
+bash scripts/start_pipeline.sh   # docker-compose up -d + health checks + starts the producer
 
-# Or start lite mode (for <16GB RAM systems)
-python run.py start --lite
+make build-flink                 # Compile the Flink job (requires Maven + Java 11/17)
+make deploy-flink                 # Copy the JAR and submit it
 
-# Run application components
-python run.py producer      # Start data ingestion
-python run.py api           # Start REST/WebSocket API
-python run.py dashboard     # Start visualization
+make api                          # Run the FastAPI backend
+cd frontend && npm install && npm run dev   # Run the Next.js terminal
 
-# Utility commands
-python run.py status        # Check service status
-python run.py health        # Check service health
-python run.py stop          # Stop all services
-```
-
-### Using Make (Linux/macOS/WSL)
-
-```bash
-make start          # Full mode
-make start-lite     # Lite mode
-make producer       # Run producer
-make api            # Run API
-make dashboard      # Run dashboard
-make help           # Show all commands
+make help                         # Show all available make targets
 ```
 
 ### Manual Docker Commands
 
 ```bash
-# Full mode
 docker-compose up -d
-
-# Lite mode
-docker-compose -f docker-compose-lite.yml up -d
 ```
 
 ---
@@ -75,20 +42,13 @@ docker-compose -f docker-compose-lite.yml up -d
 
 **Solutions:**
 
-1. **Use Lite Mode** for systems with <16GB RAM:
-
-   ```bash
-   python run.py start --lite
-   # Or: docker-compose -f docker-compose-lite.yml up -d
-   ```
-
-2. **Increase Docker memory allocation:**
+1. **Increase Docker memory allocation:**
    - Open Docker Desktop → Settings → Resources
    - Set Memory to at least 6GB (8GB recommended)
 
-3. **Stop unnecessary applications** before running
+2. **Stop unnecessary applications** before running
 
-4. **Monitor resource usage:**
+3. **Monitor resource usage:**
    ```bash
    docker stats
    ```
@@ -136,13 +96,13 @@ docker-compose -f docker-compose-lite.yml up -d
 
    ```bash
    # Check all services
-   python scripts/wait_for_services.py all
+   venv/bin/python scripts/wait_for_services.py all
 
    # Check specific services
-   python scripts/wait_for_services.py kafka postgres redis
+   venv/bin/python scripts/wait_for_services.py kafka postgres redis
 
    # With custom timeout
-   python scripts/wait_for_services.py kafka --retries 60 --interval 3
+   venv/bin/python scripts/wait_for_services.py kafka --retries 60 --interval 3
    ```
 
 2. **Using make (Linux/macOS/WSL):**
@@ -268,63 +228,18 @@ All configuration can be customized via environment variables:
 
 ---
 
-## Lite Mode Details
-
-Lite mode skips the resource-heavy Flink cluster and uses Python-based consumers instead.
-
-### What's Included in Lite Mode
-
-- ✅ Zookeeper + Kafka (message streaming)
-- ✅ Redis (caching)
-- ✅ PostgreSQL/TimescaleDB (database)
-- ✅ Kafka UI (monitoring)
-- ❌ Flink JobManager (skipped)
-- ❌ Flink TaskManager (skipped)
-
-### Running in Lite Mode
-
-```bash
-# Cross-platform (recommended)
-python run.py start --lite
-
-# Using make (Linux/macOS/WSL)
-make start-lite
-
-# Manual Docker command
-docker-compose -f docker-compose-lite.yml up -d
-```
-
-### Processing Data in Lite Mode
-
-Instead of Flink, use Python consumers:
-
-```bash
-# Cross-platform
-python run.py consumer
-
-# Using make
-make consumer
-
-# Manual
-python src/consumers/simple_consumer.py
-```
-
----
-
 ## Troubleshooting Commands
 
 ### Check all container status
 
 ```bash
-python run.py status
-# Or: docker-compose ps
+docker-compose ps
 ```
 
 ### View container logs
 
 ```bash
-python run.py logs kafka
-# Or: docker-compose logs -f kafka
+docker-compose logs -f kafka
 ```
 
 ### Restart a specific service
@@ -336,7 +251,6 @@ docker-compose restart kafka
 ### Full reset (removes all data)
 
 ```bash
-python run.py stop
 docker-compose down -v
 # Or: make clean
 ```
@@ -350,15 +264,15 @@ docker stats --no-stream
 ### Check service health
 
 ```bash
-python scripts/wait_for_services.py all
-# Or: python run.py health
+venv/bin/python scripts/wait_for_services.py all
+# Or: make health
 ```
 
 ---
 
 ## Getting Help
 
-1. Check the logs: `python run.py logs [service_name]`
-2. Verify healthchecks: `python scripts/wait_for_services.py all`
+1. Check the logs: `docker-compose logs -f [service_name]`
+2. Verify healthchecks: `venv/bin/python scripts/wait_for_services.py all`
 3. Review this guide for common issues
 4. Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for more details
