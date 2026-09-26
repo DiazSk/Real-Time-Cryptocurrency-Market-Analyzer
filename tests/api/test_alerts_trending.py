@@ -43,3 +43,10 @@ def test_trending_with_under_24h_of_data_is_empty_not_an_error(fakes):
     r = client.get("/api/v1/trending")
     assert r.status_code == 200
     assert r.json() == {"direction": "abs", "count": 0, "trending": []}
+
+
+def test_trending_skips_zero_prior_close(fakes):
+    client, conn, _ = fakes
+    client.get("/api/v1/trending")
+    sql = conn.queries[0][0]
+    assert "h.close_price > 0" in sql.split("volume AS")[0]

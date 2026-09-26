@@ -64,6 +64,7 @@ async def trending_symbols(
             JOIN latest l ON l.crypto_id = h.crypto_id
             WHERE h.bucket <= l.bucket - INTERVAL '24 hours'
               AND h.bucket >  l.bucket - INTERVAL '48 hours'
+              AND h.close_price > 0
             ORDER BY h.crypto_id, h.bucket DESC
         ),
         volume AS (
