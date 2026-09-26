@@ -136,3 +136,140 @@ def test_candle_upsert_sql_aggregates_from_raw_trades():
     # open/close must come from event-time order, not insertion order.
     assert "ORDER BY event_time, trade_id" in sql
     assert "ORDER BY event_time DESC, trade_id DESC" in sql
+
+
+# ---------------------------------------------------------------------------
+# process_message: never advances (commits) past a trade whose raw_trades
+# insert failed. commit() with no args commits the partition's current fetch
+# position — since that position already moved past this message the instant
+# the Kafka iterator returned it, "roll back and continue" silently acks a
+# trade that was never persisted. The fix is to retry the SAME message in
+# place until the insert succeeds, and only then commit.
+# ---------------------------------------------------------------------------
+
+
+class _Msg:
+    def __init__(self, value):
+        self.value = value
+
+
+def _trade_json(trade_id=1, event_time=None, **overrides):
+    body = {
+        "trade_id": trade_id, "symbol": "BTC", "price": "100", "size": "1", "side": "buy",
+        "sequence": 1,
+        "event_time": (event_time or datetime(2026, 1, 1, tzinfo=UTC)).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        "ingest_time": datetime(2026, 1, 1, tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+    }
+    body.update(overrides)
+    return json.dumps(body)
+
+
+def test_process_message_retries_insert_and_commits_once_on_success():
+    from src.consumers.simple_consumer import process_message
+
+    attempts = []
+    commits = []
+    sleeps = []
+
+    def insert_fn(trade):
+        attempts.append(trade.trade_id)
+        if len(attempts) < 3:
+            raise ConnectionError("db down")
+
+    result = process_message(
+        _Msg(_trade_json(trade_id=42)), insert_fn,
+        lambda: commits.append(True), lambda s: sleeps.append(s),
+    )
+
+    assert len(attempts) == 3        # failed twice, succeeded on the third
+    assert commits == [True]         # committed exactly once, after success
+    assert sleeps == [1.0, 2.0]      # capped exponential backoff, recorded not real
+    assert result.trade_id == 42
+
+
+def test_process_message_commits_past_invalid_trade_without_retrying():
+    from src.consumers.simple_consumer import process_message
+
+    insert_calls = []
+    commits = []
+
+    result = process_message(
+        _Msg(_trade_json(price="0")),  # invalid: non-positive price
+        lambda t: insert_calls.append(t), lambda: commits.append(True), lambda s: None,
+    )
+
+    assert insert_calls == []   # never attempted — it will never parse
+    assert commits == [True]    # committed past the poison pill
+    assert result is None
+
+
+def test_process_message_stops_retrying_on_shutdown_without_committing():
+    from src.consumers.simple_consumer import process_message
+
+    commits = []
+
+    result = process_message(
+        _Msg(_trade_json()), lambda t: (_ for _ in ()).throw(ConnectionError("db down")),
+        lambda: commits.append(True), lambda s: None,
+        is_shutting_down=lambda: True,
+    )
+
+    assert result is None
+    assert commits == []  # must not commit an offset for a trade that was never inserted
+
+
+def test_insert_with_reconnect_replaces_a_closed_connection():
+    from src.consumers.simple_consumer import _insert_with_reconnect
+
+    class _FakeConn:
+        def __init__(self, closed):
+            self.closed = closed
+            self.rolled_back = False
+
+        def rollback(self):
+            self.rolled_back = True
+
+    class _FakePg:
+        def __init__(self, conn):
+            self.conn = conn
+
+    broken = _FakeConn(closed=True)
+    healthy = _FakeConn(closed=False)
+    pg = _FakePg(broken)
+
+    def failing_insert(conn, trade):
+        raise ConnectionError("connection terminated")
+
+    with pytest.raises(ConnectionError):
+        _insert_with_reconnect(pg, object(), insert_fn=failing_insert, connect_fn=lambda: healthy)
+
+    assert broken.rolled_back is True
+    assert pg.conn is healthy  # reconnected because the old connection was closed
+
+
+def test_insert_with_reconnect_keeps_connection_when_not_closed():
+    from src.consumers.simple_consumer import _insert_with_reconnect
+
+    class _FakeConn:
+        def __init__(self):
+            self.closed = False
+            self.rolled_back = False
+
+        def rollback(self):
+            self.rolled_back = True
+
+    class _FakePg:
+        def __init__(self, conn):
+            self.conn = conn
+
+    conn = _FakeConn()
+    pg = _FakePg(conn)
+
+    def failing_insert(c, trade):
+        raise ValueError("transient error")
+
+    with pytest.raises(ValueError):
+        _insert_with_reconnect(pg, object(), insert_fn=failing_insert, connect_fn=lambda: (_ for _ in ()).throw(AssertionError("should not reconnect")))
+
+    assert conn.rolled_back is True
+    assert pg.conn is conn  # unchanged: the connection itself wasn't reported closed

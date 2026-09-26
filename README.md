@@ -198,7 +198,10 @@ from `raw_trades`** at close time (`GROUP BY` over the window's rows), not from
 in-memory state — so a replay after a restart can only ever produce the complete,
 correct candle for that window, never a partial one overwriting a good one. The
 watermark itself is a wall-clock stand-in (2 s allowed lateness) rather than
-Flink's real event-time watermark.
+Flink's real event-time watermark. A Kafka offset is never committed for a trade
+whose `raw_trades` insert hasn't succeeded, so a sustained Postgres outage pauses
+this consumer (it retries the same trade with backoff) rather than skipping or
+losing it.
 
 ---
 

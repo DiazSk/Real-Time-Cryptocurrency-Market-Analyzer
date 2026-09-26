@@ -18,6 +18,15 @@ the correct, complete candle for that window — never a partial one written
 over a good one. MinuteAggregator's only job is deciding WHEN a window has
 closed; it does not compute OHLCV values itself.
 
+`consumer.commit()` with no arguments commits the partition's current fetch
+*position*, which already advanced past a message the instant the Kafka
+iterator returned it — there is no way to "commit everything except this one
+message". So a failed insert can never just roll back and move on to the next
+message (that would silently and permanently skip the failed one). Instead
+`process_message` retries the SAME message's insert in place, with capped
+backoff, until it succeeds, and only then commits — a sustained Postgres
+outage pauses this consumer rather than losing or skipping a trade.
+
 ponytail: lite mode has no z-score anomaly detector. `price_alerts` stays
 empty when running this instead of Flink; the trend is real (VWAP, OHLC) but
 no PRICE_SPIKE/PRICE_DROP rows are ever written. Add a detector here if lite
@@ -80,6 +89,9 @@ PUBSUB_CHANNEL = "crypto:updates"
 WATERMARK_LATENESS_SECONDS = 2.0  # stand-in for Flink's BoundedOutOfOrderness(2s)
 FLUSH_INTERVAL_SECONDS = 1.0
 
+RETRY_BASE_DELAY_SECONDS = 1.0
+RETRY_MAX_DELAY_SECONDS = 30.0
+
 # ---------------------------------------------------------------------------
 # Validation — same rules as Flink's Trade.isValid / TradeDeserializer
 # ---------------------------------------------------------------------------
@@ -92,6 +104,58 @@ def parse_trade(raw: str) -> Trade:
         return Trade.model_validate_json(raw)
     except ValidationError as e:
         raise ValueError(str(e)) from e
+
+
+def process_message(msg, insert_fn, commit_fn, sleep_fn, is_shutting_down=lambda: False) -> Optional[Trade]:
+    """Parse, durably insert, and commit exactly one Kafka message — in that
+    order, so an offset is never committed (and therefore never silently
+    skipped) until its trade's raw_trades insert has actually succeeded.
+
+    `commit_fn` stands in for `consumer.commit()`, which commits the
+    partition's current fetch *position* with no way to except a single
+    message — so a failed insert can't just roll back and move on to the next
+    message; that would permanently ack a trade that was never persisted.
+    Instead, an insert failure retries the SAME message forever (capped
+    exponential backoff via `sleep_fn`, so a sustained outage pauses this
+    consumer instead of losing or skipping the trade). `is_shutting_down()` is
+    checked before each attempt so shutdown can interrupt a stuck retry loop
+    without committing;
+    ponytail: since `sleep_fn` (time.sleep in production) isn't itself
+    interruptible, that check only takes effect between attempts — the ceiling
+    on shutdown latency is one retry delay (up to RETRY_MAX_DELAY_SECONDS).
+
+    A parse failure (poison pill) can never succeed on retry, so it's counted
+    and committed past immediately rather than retried.
+
+    Returns the parsed Trade once it has been committed, or None (invalid
+    message, or the retry loop was interrupted by shutdown).
+    """
+    try:
+        trade = parse_trade(msg.value)
+    except ValueError as e:
+        log.warning("Dropping invalid trade: %s", e)
+        commit_fn()
+        return None
+
+    delay = RETRY_BASE_DELAY_SECONDS
+    attempt = 0
+    while not is_shutting_down():
+        try:
+            insert_fn(trade)
+            break
+        except Exception as e:
+            attempt += 1
+            log.warning(
+                "raw_trades insert failed for %s (attempt %d), retrying in %.1fs: %s",
+                trade.symbol, attempt, delay, e,
+            )
+            sleep_fn(delay)
+            delay = min(delay * 2, RETRY_MAX_DELAY_SECONDS)
+    else:
+        return None  # shutting down mid-retry: leave this message uncommitted for redelivery
+
+    commit_fn()
+    return trade
 
 
 # ---------------------------------------------------------------------------
@@ -307,6 +371,37 @@ def _connect_pg():
     return psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASS)
 
 
+class _PgConn:
+    """Mutable box around a psycopg2 connection, so a broken-connection reconnect
+    (inside a retry closure) is visible everywhere that holds this box, not just
+    to whichever local variable happened to call `_connect_pg()` again."""
+
+    __slots__ = ("conn",)
+
+    def __init__(self):
+        self.conn = _connect_pg()
+
+
+def _insert_with_reconnect(pg: _PgConn, trade: Trade, insert_fn=insert_raw_trade, connect_fn=_connect_pg) -> None:
+    """insert_fn wrapper for process_message: rolls back a failed transaction and,
+    if the connection itself is broken, reconnects before re-raising so the next
+    retry attempt gets a healthy connection."""
+    try:
+        insert_fn(pg.conn, trade)
+    except Exception:
+        try:
+            pg.conn.rollback()
+        except Exception:
+            pass
+        if getattr(pg.conn, "closed", False):
+            log.warning("Postgres connection closed — reconnecting")
+            try:
+                pg.conn = connect_fn()
+            except Exception as reconnect_err:
+                log.error("Postgres reconnect failed: %s", reconnect_err)
+        raise
+
+
 def _start_flush_timer(agg: MinuteAggregator, lock: threading.Lock, timer_conn, r, interval: float = FLUSH_INTERVAL_SECONDS):
     def _loop():
         while not _shutdown.is_set():
@@ -328,7 +423,7 @@ def _start_flush_timer(agg: MinuteAggregator, lock: threading.Lock, timer_conn, 
 
 def run():
     log.info("Connecting to PostgreSQL %s:%d/%s …", PG_HOST, PG_PORT, PG_DB)
-    conn = _connect_pg()
+    pg = _PgConn()
     timer_conn = _connect_pg()  # dedicated connection for the flush-timer thread
     log.info("Postgres connected.")
 
@@ -356,7 +451,6 @@ def run():
 
     agg = MinuteAggregator()
     lock = threading.Lock()
-    stats = {"invalid": 0}
     _start_flush_timer(agg, lock, timer_conn, r)
 
     def _handle_signal(sig, frame):
@@ -365,9 +459,9 @@ def run():
         with lock:
             closed = agg.close_all()
         for w in closed:
-            flush_closed_window(conn, r, w)
+            flush_closed_window(pg.conn, r, w)
         consumer.close()
-        conn.close()
+        pg.conn.close()
         timer_conn.close()
         sys.exit(0)
 
@@ -378,35 +472,21 @@ def run():
         for msg in consumer:
             if _shutdown.is_set():
                 break
-            try:
-                trade = parse_trade(msg.value)
-            except ValueError as e:
-                stats["invalid"] += 1
-                log.warning("Dropping invalid trade: %s", e)
-                # A poison-pill message will never parse; commit past it so the
-                # consumer doesn't get stuck retrying it forever.
-                consumer.commit()
-                continue
 
-            try:
-                insert_raw_trade(conn, trade)
-            except Exception as e:
-                log.error(
-                    "raw_trades insert failed for %s: %s — leaving offset uncommitted for retry",
-                    trade.symbol, e,
-                )
-                try:
-                    conn.rollback()
-                except Exception:
-                    pass
-                continue  # do not commit, do not advance the aggregator: redelivery retries this trade
-
-            consumer.commit()
+            trade = process_message(
+                msg,
+                insert_fn=lambda t: _insert_with_reconnect(pg, t),
+                commit_fn=consumer.commit,
+                sleep_fn=time.sleep,
+                is_shutting_down=_shutdown.is_set,
+            )
+            if trade is None:
+                continue  # invalid message (already committed past), or shutdown interrupted a retry
 
             with lock:
                 closed = agg.add_trade(trade)
             for w in closed:
-                flush_closed_window(conn, r, w)
+                flush_closed_window(pg.conn, r, w)
 
 
 if __name__ == "__main__":
