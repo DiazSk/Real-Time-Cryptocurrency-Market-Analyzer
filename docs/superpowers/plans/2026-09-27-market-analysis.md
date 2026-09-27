@@ -34,7 +34,7 @@
 
 ### Task 1: `analysis/stats.py` (TDD)
 
-**Files:** create `analysis/__init__.py` (empty), `analysis/stats.py`, `tests/analysis/test_stats.py`, `requirements-analysis.txt`.
+**Files:** create `analysis/__init__.py` (empty), `analysis/stats.py`, `tests/analysis/test_analysis_stats.py`, `requirements-analysis.txt`.
 
 - [ ] **Step 1:** Install the dependencies (`venv/bin/pip install -r requirements-analysis.txt`).
 - [ ] **Step 2:** Write the tests below and run them. Expected result: `ModuleNotFoundError: analysis.stats`.
@@ -97,7 +97,7 @@ def test_acf_ignores_nan_gaps():
     # a missing hour must not make hours 2 apart look adjacent
     x = np.array([1.0, np.nan, -1.0, 2.0, np.nan, -2.0, 3.0, np.nan, -3.0])
     assert np.isnan(acf(x, 1)[0])  # only 2 true lag-1 pairs: too few to define a correlation
-    assert acf(x, 2)[0] == pytest.approx(-1.0)  # (1,-1), (2,-2), (3,-3)
+    assert acf(x, 2)[1] == pytest.approx(-1.0)  # lag 2: (1,-1), (2,-2), (3,-3)
 
 
 def test_shuffle_null_band_brackets_zero_for_white_noise():

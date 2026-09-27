@@ -107,7 +107,7 @@ Every finding is stated as "estimate [95% CI] vs baseline". The notebook's last 
 
 ## Section 3: Tests, CI, README
 
-- **`tests/analysis/test_stats.py`** has one known-answer test per helper:
+- **`tests/analysis/test_analysis_stats.py`** has one known-answer test per helper:
   - `bootstrap_ci`: coverage of a known mean with a fixed seed;
   - `block_bootstrap_ci`: resamples whole blocks;
   - `wilson_ci`: matches the textbook value for 8/10 → [0.49, 0.94];
