@@ -117,3 +117,27 @@ jobs:
         working-directory: analytics
         env:
           DBT_PROFILES_DIR: .
+
+  airflow:
+    runs-on: ubuntu-latest
+    env:
+      AIRFLOW_HOME: ${{ github.workspace }}/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-analytics.txt
+      # Mirrors the local layout: the DAG calls venv/bin/dbt, Airflow lives in its own env.
+      - run: python -m venv venv && venv/bin/pip install -r requirements-analytics.txt
+      - run: pip install "apache-airflow==3.3.2" "astronomer-cosmos==1.15.1" --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.3.2/constraints-3.12.txt
+      - run: airflow db migrate
+      - name: DAG imports cleanly
+        run: |
+          out=$(airflow dags list-import-errors 2>/dev/null)
+          echo "$out"
+          echo "$out" | grep -q "No data found"
+      - name: DAG renders one run and one test task per dbt model
+        run: airflow tasks list crypto_analytics | tee tasks.txt && grep -q "dbt.mart_signals.test" tasks.txt

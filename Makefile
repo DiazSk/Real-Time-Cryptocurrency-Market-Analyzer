@@ -158,6 +158,16 @@ dbt: ## Build and test every dbt model (analytics/), reading DB settings from .e
 dbt-docs: ## Generate and serve the dbt docs + lineage graph on :8088
 	set -a; . ./.env; set +a; cd analytics && ../$(VENV_BIN)/dbt docs generate && ../$(VENV_BIN)/dbt docs serve --port 8088
 
+AIRFLOW_VERSION = 3.3.2
+AIRFLOW_CONSTRAINTS = https://raw.githubusercontent.com/apache/airflow/constraints-$(AIRFLOW_VERSION)/constraints-3.12.txt
+
+airflow-setup: ## Create .venv-airflow with Airflow + Cosmos (kept apart: Airflow pins many shared deps)
+	python3.12 -m venv .venv-airflow
+	.venv-airflow/bin/pip install --quiet "apache-airflow==$(AIRFLOW_VERSION)" "astronomer-cosmos==1.15.1" --constraint $(AIRFLOW_CONSTRAINTS)
+
+airflow: ## Run Airflow standalone (UI :8080); login password is in airflow/simple_auth_manager_passwords.json.generated
+	set -a; . ./.env; set +a; export AIRFLOW_HOME=$(CURDIR)/airflow AIRFLOW__CORE__LOAD_EXAMPLES=False; .venv-airflow/bin/airflow standalone
+
 load-test: ## Benchmark REST latency, WebSocket fan-out and freshness (full stack up; nothing on :8000)
 	$(PYTHON_CMD) -m benchmarks.load_test
 
