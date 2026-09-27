@@ -16,6 +16,8 @@ import logging
 import time
 from typing import Awaitable, Callable
 
+import redis.exceptions
+
 logger = logging.getLogger(__name__)
 
 CHANNELS = ("crypto:updates", "crypto:trades")
@@ -26,9 +28,16 @@ RECONNECT_BASE_DELAY_SECONDS = 1.0
 RECONNECT_MAX_DELAY_SECONDS = 30.0
 HEALTHY_CONNECTION_SECONDS = 60  # a subscription alive this long resets the backoff
 
-# Redis client errors a dropped connection can surface as; broad on purpose since
-# redis-py raises its own ConnectionError/TimeoutError subclasses plus bare OSError.
-REDIS_CONNECTION_ERRORS = (ConnectionError, TimeoutError, OSError)
+# Errors a dropped Redis connection can surface as. redis-py's ConnectionError and
+# TimeoutError derive from RedisError, not the builtins, so both families are listed;
+# missing them let a `docker stop redis` kill the listener task for good.
+REDIS_CONNECTION_ERRORS = (
+    redis.exceptions.ConnectionError,
+    redis.exceptions.TimeoutError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
 
 
 class PubSubDispatcher:

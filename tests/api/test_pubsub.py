@@ -1,6 +1,9 @@
 import asyncio
 import json
 
+import pytest
+import redis.exceptions
+
 from src.api.pubsub import PubSubDispatcher
 
 
@@ -107,8 +110,9 @@ def test_bad_json_payload_is_dropped_not_raised():
 class FlakyPubSub:
     """Fails once on listen(), as if the connection to Redis had dropped."""
 
-    def __init__(self, fail: bool):
+    def __init__(self, fail: bool, error: Exception):
         self.fail = fail
+        self.error = error
         self.subscribed = None
         self.closed = False
 
@@ -117,7 +121,7 @@ class FlakyPubSub:
 
     async def listen(self):
         if self.fail:
-            raise ConnectionError("connection reset by peer")
+            raise self.error
         yield {"type": "message", "channel": "crypto:updates", "data": '{"symbol": "BTC"}'}
         await asyncio.sleep(3600)
 
@@ -131,19 +135,26 @@ class FlakyPubSub:
 class FlakyRedisClient:
     """First pubsub() attempt drops the connection; the second succeeds."""
 
-    def __init__(self):
+    def __init__(self, error: Exception):
+        self.error = error
         self.calls = 0
         self.instances = []
 
     def pubsub(self):
         self.calls += 1
-        instance = FlakyPubSub(fail=(self.calls == 1))
+        instance = FlakyPubSub(fail=(self.calls == 1), error=self.error)
         self.instances.append(instance)
         return instance
 
 
-def test_reconnects_after_connection_error_and_delivers_message():
-    redis_client = FlakyRedisClient()
+# redis-py's ConnectionError is not a subclass of the builtin one; a real `docker stop redis` raises it.
+@pytest.mark.parametrize("error", [
+    ConnectionError("connection reset by peer"),
+    redis.exceptions.ConnectionError("Connection closed by server."),
+    redis.exceptions.TimeoutError("Timeout reading from socket"),
+])
+def test_reconnects_after_connection_error_and_delivers_message(error):
+    redis_client = FlakyRedisClient(error)
     dispatcher = PubSubDispatcher()
     dispatcher._sleep = lambda seconds: asyncio.sleep(0)  # skip real backoff in the test
     received = []
@@ -173,7 +184,7 @@ def test_cancelled_error_exits_cleanly_during_reconnect_backoff():
         await asyncio.sleep(3600)  # stand-in for "still backing off" when stop() is called
 
     dispatcher._sleep = never_sleeps_real_time
-    redis_client = FlakyRedisClient()  # first (only) attempt fails, then it's backing off
+    redis_client = FlakyRedisClient(ConnectionError("reset"))  # first (only) attempt fails, then it's backing off
 
     async def scenario():
         dispatcher.start(redis_client)
