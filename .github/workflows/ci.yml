@@ -137,7 +137,8 @@ jobs:
       - run: airflow db migrate
       - name: DAG imports cleanly
         run: |
-          out=$(airflow dags list-import-errors 2>/dev/null)
+          # --local parses the DAG files here; without it the command only reads the (empty) metadata DB.
+          out=$(airflow dags list-import-errors --local 2>/dev/null)
           echo "$out"
           echo "$out" | grep -q "No data found"
       - name: DAG renders one run and one test task per dbt model
