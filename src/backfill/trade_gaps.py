@@ -20,13 +20,16 @@ CAGGS = (("candles_5m", timedelta(minutes=5)), ("candles_15m", timedelta(minutes
 GAPS_SQL = """
 SELECT g.crypto_id, c.symbol, c.coinbase_product, g.prev_id, g.trade_id
 FROM (
-    SELECT crypto_id, trade_id,
+    SELECT crypto_id, trade_id, event_time,
            lag(trade_id) OVER (PARTITION BY crypto_id ORDER BY trade_id) AS prev_id
     FROM raw_trades
     WHERE event_time > now() - INTERVAL '7 days'
 ) g
 JOIN cryptocurrencies c ON c.id = g.crypto_id
 WHERE g.trade_id - g.prev_id > 1
+  -- Leave very recent gaps alone: Flink may still emit (or, after a checkpoint restore,
+  -- re-emit) those minutes and would overwrite the repaired candle with a stream-only one.
+  AND g.event_time < now() - INTERVAL '5 minutes'
 ORDER BY c.symbol, g.prev_id
 """
 
