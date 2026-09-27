@@ -81,13 +81,15 @@ graphify-out/
 /graft/
 
 # Impeccable design artefacts stay local, except the direction record.
-.impeccable/*
-!.impeccable/seed.json
-!.impeccable/design.json
-!.impeccable/decision*.json
+.impeccable/
 
 # Analytics layer: dbt build output and packages, Airflow's local state (only DAGs are source)
 analytics/dbt_packages/
 .venv-airflow/
 airflow/*
 !airflow/dags/
+
+# Local-only agent and design-tool notes (kept on this machine, never pushed)
+CLAUDE.md
+PRODUCT.md
+DESIGN.md
