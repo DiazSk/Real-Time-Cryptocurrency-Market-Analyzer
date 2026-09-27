@@ -35,7 +35,7 @@ All numbers are measured and reproducible. The pipeline numbers come from a 38-m
 
 Flink's restart backoff sets the recovery times. It starts at 10 s and doubles up to 2 min, and failures within the same hour keep it raised. The chaos run followed earlier test failures, so the TaskManager and Postgres recoveries hit the long end of that range. The Redis scenario found a real bug: the API's pub/sub listener died on redis-py's own `ConnectionError`, so live trades never came back after a Redis restart. It's now fixed and covered by a test.
 
-The full acceptance log is in [the design spec](docs/superpowers/specs/2026-09-25-real-ingestion-and-correctness-design.md#acceptance-run-2026-09-26).
+The full acceptance log is in [docs/ACCEPTANCE_RUN.md](docs/ACCEPTANCE_RUN.md).
 
 ## Architecture
 
