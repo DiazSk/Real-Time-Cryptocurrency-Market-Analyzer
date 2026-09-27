@@ -13,7 +13,8 @@ select
     p.close as pipeline_close,
     e.close as exchange_close,
     p.volume as pipeline_volume,
-    e.volume as exchange_volume
+    e.volume as exchange_volume,
+    greatest(p.loaded_at, e.loaded_at) as loaded_at  -- when this minute last changed in either source
 from {{ ref('stg_pipeline_candles') }} p
 full outer join {{ ref('stg_exchange_candles') }} e
     on p.crypto_id = e.crypto_id and p.bucket = e.bucket

@@ -113,7 +113,8 @@ jobs:
       - run: psql -v ON_ERROR_STOP=1 -q -f configs/init-db.sql
       - run: psql -v ON_ERROR_STOP=1 -q -f configs/migrations/001_analytics.sql
       - run: psql -v ON_ERROR_STOP=1 -q -f tests/sql/analytics_fixture.sql
-      - run: dbt deps && dbt build --target ci
+      # --empty first: unit tests on incremental models read `this`'s columns, so the table must exist.
+      - run: dbt deps && dbt run --empty --target ci && dbt build --target ci
         working-directory: analytics
         env:
           DBT_PROFILES_DIR: .

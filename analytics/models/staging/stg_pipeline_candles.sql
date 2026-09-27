@@ -7,5 +7,6 @@ select
     close_price as close,
     vwap,
     volume,
-    trade_count
+    trade_count,
+    updated_at as loaded_at
 from {{ source('pipeline', 'price_aggregates_1m') }}

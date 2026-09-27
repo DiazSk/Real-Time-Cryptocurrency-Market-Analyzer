@@ -4,7 +4,7 @@ models:
   - name: fct_candles_1m
     description: >
       The unified 1-minute candle history (pipeline where available, Coinbase otherwise) with its
-      1-minute log return. Incremental: each run reprocesses the last 2 hours.
+      1-minute log return. Incremental: each run reprocesses every symbol-day that received new or updated rows since the last run (late-arriving backfill included).
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -92,7 +92,7 @@ models:
     description: >
       Every minute present in both the pipeline's candles and Coinbase's official candles, with the
       close-price difference and volume ratio. A minute agrees when the close is within 0.05% and
-      the volume within 5%. Disagreement is reported here, never failed as a test.
+      the volume within 5%. Disagreement is reported here, never failed as a test. Note: Coinbase's candle endpoint is not ground truth. On a checked POL window the pipeline matched Coinbase's own REST trade tape exactly (37/37 trades, identical volume) while the candle endpoint reported ~3% more volume, so disagreement concentrates in thin, low-priced pairs and in session-edge minutes where the producer started or stopped mid-minute.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
@@ -136,3 +136,29 @@ unit_tests:
     expect:
       rows:
         - {crypto_id: 1, bucket: '2026-09-20 00:40:00+00', alert_type: PRICE_SPIKE, severity: HIGH}
+
+  - name: late_arriving_backfill_day_is_reprocessed
+    model: fct_candles_1m
+    description: >
+      Backfilled candles arrive with old buckets. An incremental run must pick up any symbol-day
+      that received rows since the last run (by loaded_at), not just the newest buckets.
+    overrides:
+      macros:
+        is_incremental: true
+    given:
+      - input: this
+        rows:
+          - {crypto_id: 1, bucket: '2026-09-26 12:00:00+00', loaded_at: '2026-09-27 08:00:00+00'}
+      - input: ref('int_candles_unified')
+        rows:
+          - {crypto_id: 1, symbol: BTC, bucket: '2026-09-26 12:00:00+00', close: 10, loaded_at: '2026-09-27 08:00:00+00'}
+          - {crypto_id: 1, symbol: BTC, bucket: '2026-07-01 00:00:00+00', close: 10, loaded_at: '2026-09-27 09:00:00+00'}
+          - {crypto_id: 1, symbol: BTC, bucket: '2026-07-02 00:00:00+00', close: 10, loaded_at: '2026-09-27 07:00:00+00'}
+      - input: ref('int_returns_1m')
+        rows:
+          - {crypto_id: 1, bucket: '2026-09-26 12:00:00+00', log_return: null}
+          - {crypto_id: 1, bucket: '2026-07-01 00:00:00+00', log_return: null}
+          - {crypto_id: 1, bucket: '2026-07-02 00:00:00+00', log_return: null}
+    expect:
+      rows:
+        - {crypto_id: 1, bucket: '2026-07-01 00:00:00+00'}

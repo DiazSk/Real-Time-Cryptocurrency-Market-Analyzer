@@ -5,5 +5,6 @@ select
     high,
     low,
     close,
-    volume
+    volume,
+    loaded_at
 from {{ source('pipeline', 'coinbase_candles_1m') }}
