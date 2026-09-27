@@ -1,0 +1,15 @@
+version: 2
+
+exposures:
+  - name: sub_project_4_analysis
+    label: Written market analysis (sub-project 4)
+    type: analysis
+    maturity: low
+    description: Charts and write-up answering volatility clustering, intraday/weekday seasonality and alert precision.
+    depends_on:
+      - ref('mart_volatility_hourly')
+      - ref('mart_seasonality')
+      - ref('mart_signal_precision')
+      - ref('mart_pipeline_vs_exchange_summary')
+    owner:
+      name: Zaid Shaikh

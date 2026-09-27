@@ -1,0 +1,3 @@
+# dbt analytics layer (analytics/). Installed into the main venv; Airflow calls venv/bin/dbt via Cosmos.
+dbt-core==1.12.5
+dbt-postgres==1.11.0

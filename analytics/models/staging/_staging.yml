@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: stg_symbols
+    description: Tracked symbols. One row per crypto_id.
+    columns:
+      - name: crypto_id
+        description: Surrogate key used by every other table.
+        data_tests: [unique, not_null]
+      - name: symbol
+        description: Ticker, e.g. BTC.
+        data_tests: [unique, not_null]
+
+  - name: stg_trades
+    description: Individual trades. One row per (crypto_id, trade_id).
+    columns:
+      - name: source
+        description: stream (live feed) or rest_backfill (repaired gap).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['stream', 'rest_backfill']
+
+  - name: stg_pipeline_candles
+    description: The pipeline's 1-minute candles, renamed to the shared candle vocabulary.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, bucket]
+    columns:
+      - name: crypto_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_symbols')
+                field: crypto_id
+
+  - name: stg_exchange_candles
+    description: Official Coinbase 1-minute candles.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, bucket]
+    columns:
+      - name: crypto_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_symbols')
+                field: crypto_id
+
+  - name: stg_alerts
+    description: Flink z-score alerts, keyed by the candle minute that triggered them.
+    columns:
+      - name: severity
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['LOW', 'MEDIUM', 'HIGH']

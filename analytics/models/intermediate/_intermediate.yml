@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: int_candles_unified
+    description: >
+      One row per symbol-minute across both candle sources. OHLCV comes from the pipeline when
+      it has the minute, otherwise from the exchange; both closes and volumes are kept for reconciliation.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, bucket]
+    columns:
+      - name: source
+        description: Which source supplied OHLCV for this minute.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['pipeline', 'exchange']
+
+  - name: int_returns_1m
+    description: >
+      1-minute log return ln(close / previous close), only when the previous candle is exactly one
+      minute earlier. A missing minute yields NULL rather than one large multi-minute return.
+
+unit_tests:
+  - name: pipeline_wins_and_exchange_fills_gaps
+    model: int_candles_unified
+    given:
+      - input: ref('stg_pipeline_candles')
+        rows:
+          - {crypto_id: 1, bucket: '2026-09-20 00:00:00+00', open: 10, high: 11, low: 9, close: 10.5, volume: 2}
+      - input: ref('stg_exchange_candles')
+        rows:
+          - {crypto_id: 1, bucket: '2026-09-20 00:00:00+00', open: 20, high: 21, low: 19, close: 20.5, volume: 4}
+          - {crypto_id: 1, bucket: '2026-09-20 00:01:00+00', open: 21, high: 22, low: 20, close: 21.5, volume: 5}
+      - input: ref('stg_symbols')
+        rows:
+          - {crypto_id: 1, symbol: BTC}
+    expect:
+      rows:
+        - {crypto_id: 1, symbol: BTC, bucket: '2026-09-20 00:00:00+00', close: 10.5, volume: 2, source: pipeline, pipeline_close: 10.5, exchange_close: 20.5}
+        - {crypto_id: 1, symbol: BTC, bucket: '2026-09-20 00:01:00+00', close: 21.5, volume: 5, source: exchange, pipeline_close: null, exchange_close: 21.5}
+
+  - name: gap_minute_has_no_return
+    model: int_returns_1m
+    given:
+      - input: ref('int_candles_unified')
+        rows:
+          - {crypto_id: 1, bucket: '2026-09-20 00:00:00+00', close: 100}
+          - {crypto_id: 1, bucket: '2026-09-20 00:01:00+00', close: 100}
+          - {crypto_id: 1, bucket: '2026-09-20 00:03:00+00', close: 105}
+          - {crypto_id: 1, bucket: '2026-09-20 00:04:00+00', close: 105}
+    expect:
+      rows:
+        - {crypto_id: 1, bucket: '2026-09-20 00:00:00+00', log_return: null}
+        - {crypto_id: 1, bucket: '2026-09-20 00:01:00+00', log_return: 0}
+        - {crypto_id: 1, bucket: '2026-09-20 00:03:00+00', log_return: null}
+        - {crypto_id: 1, bucket: '2026-09-20 00:04:00+00', log_return: 0}

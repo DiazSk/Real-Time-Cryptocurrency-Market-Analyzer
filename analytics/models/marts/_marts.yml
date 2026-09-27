@@ -1,0 +1,138 @@
+version: 2
+
+models:
+  - name: fct_candles_1m
+    description: >
+      The unified 1-minute candle history (pipeline where available, Coinbase otherwise) with its
+      1-minute log return. Incremental: each run reprocesses the last 2 hours.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, bucket]
+    columns:
+      - name: crypto_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_symbols')
+                field: crypto_id
+      - name: bucket
+        description: Minute start (UTC).
+        data_tests: [not_null]
+      - name: source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['pipeline', 'exchange']
+      - name: log_return
+        description: ln(close / previous minute's close); NULL when the previous minute is missing.
+
+  - name: mart_volatility_hourly
+    description: >
+      Realized volatility per symbol-hour, sqrt(sum of squared 1-minute log returns), next to the
+      previous hour's value (only when that hour is the one immediately before). Input for the
+      volatility-clustering question: do volatile hours follow volatile hours?
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, hour_start]
+    columns:
+      - name: n_returns
+        description: Minutes with a valid return in the hour (up to 60).
+      - name: prev_hour_vol
+        description: realized_vol of the immediately preceding hour; NULL if that hour is missing.
+
+  - name: mart_seasonality
+    description: >
+      Average hourly realized volatility and volume by symbol, ISO weekday (1=Mon) and UTC hour,
+      over hours with at least 30 valid returns. Answers: when in the week is each market most active?
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, weekday, hour_utc]
+
+  - name: mart_signals
+    description: >
+      SQL re-implementation of the pipeline's anomaly rule over the full history: z-score of each
+      1-minute return against the previous 60 returns (needs at least 30), volume > 0, fires when
+      |z| > 4, Flink's severity bands. Two honest differences from Flink: a rolling 60-return window
+      instead of Flink's EWMA (alpha 2/61), and volume > 0 instead of trade_count >= 5 (exchange
+      candles carry no trade count). Forward returns measure whether the move continued.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, bucket]
+    columns:
+      - name: severity
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['LOW', 'MEDIUM', 'HIGH']
+      - name: alert_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['PRICE_SPIKE', 'PRICE_DROP']
+      - name: n_prior
+        description: Valid returns in the 60-minute lookback (warm-up requires >= 30).
+      - name: continued_15m
+        description: True when the 15-minute forward return has the same sign as the signal's return.
+      - name: flink_alert
+        description: True when the live Flink detector also alerted on this symbol-minute.
+
+  - name: mart_signal_precision
+    description: Per symbol and severity, how often a signal's move continued (vs reverted) 15 and 60 minutes later.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, severity]
+
+  - name: mart_pipeline_vs_exchange
+    description: >
+      Every minute present in both the pipeline's candles and Coinbase's official candles, with the
+      close-price difference and volume ratio. A minute agrees when the close is within 0.05% and
+      the volume within 5%. Disagreement is reported here, never failed as a test.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, bucket]
+
+  - name: mart_pipeline_vs_exchange_summary
+    description: Share of overlapping minutes where the pipeline agrees with the exchange, per symbol.
+    columns:
+      - name: crypto_id
+        data_tests: [unique, not_null]
+
+unit_tests:
+  - name: spike_after_warmup_fires_and_spike_during_warmup_does_not
+    model: mart_signals
+    description: >
+      Symbol 1 alternates 100 / 100.01 for 40 minutes then jumps to 101 (z ~ 98, HIGH spike).
+      Symbol 2 makes the same jump at minute 10, inside the 30-return warm-up, so it must not fire.
+    given:
+      - input: ref('fct_candles_1m')
+        format: sql
+        rows: |
+          with p as (
+              select s as crypto_id, i,
+                     case when (s = 1 and i >= 40) or (s = 2 and i >= 10) then 101.0
+                          else 100 + (i % 2) * 0.01 end::numeric as close
+              from generate_series(1, 2) s, generate_series(0, 70) i
+          )
+          select crypto_id, 'S' || crypto_id as symbol,
+                 timestamptz '2026-09-20 00:00:00+00' + i * interval '1 minute' as bucket,
+                 close as open, close as high, close as low, close, 1.0::numeric as volume,
+                 'exchange'::text as source, null::numeric as pipeline_close, close as exchange_close,
+                 null::numeric as pipeline_volume, 1.0::numeric as exchange_volume,
+                 ln(close / lag(close) over (partition by crypto_id order by i))::double precision as log_return
+          from p
+      - input: ref('stg_alerts')
+        format: sql
+        rows: |
+          select null::int as crypto_id, null::timestamptz as bucket, null::text as alert_type,
+                 null::text as severity, null::numeric as z_score, null::numeric as price_change_pct
+          where false
+    expect:
+      rows:
+        - {crypto_id: 1, bucket: '2026-09-20 00:40:00+00', alert_type: PRICE_SPIKE, severity: HIGH}

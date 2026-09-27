@@ -149,6 +149,15 @@ test: ## Run Python and Flink unit tests
 migrate: ## Apply configs/migrations/*.sql to the running postgres container (idempotent)
 	docker exec -i postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -q' < configs/migrations/001_analytics.sql
 
+backfill: ## Load 90 days of Coinbase 1-minute candles (then incremental) and repair trade gaps
+	$(PYTHON_CMD) -m src.backfill all
+
+dbt: ## Build and test every dbt model (analytics/), reading DB settings from .env
+	set -a; . ./.env; set +a; cd analytics && ../$(VENV_BIN)/dbt deps --quiet && ../$(VENV_BIN)/dbt build
+
+dbt-docs: ## Generate and serve the dbt docs + lineage graph on :8088
+	set -a; . ./.env; set +a; cd analytics && ../$(VENV_BIN)/dbt docs generate && ../$(VENV_BIN)/dbt docs serve --port 8088
+
 load-test: ## Benchmark REST latency, WebSocket fan-out and freshness (full stack up; nothing on :8000)
 	$(PYTHON_CMD) -m benchmarks.load_test
 

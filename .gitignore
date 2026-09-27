@@ -85,3 +85,9 @@ graphify-out/
 !.impeccable/seed.json
 !.impeccable/design.json
 !.impeccable/decision*.json
+
+# Analytics layer: dbt build output and packages, Airflow's local state (only DAGs are source)
+analytics/dbt_packages/
+.venv-airflow/
+airflow/*
+!airflow/dags/
