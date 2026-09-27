@@ -61,3 +61,4 @@ def test_acf_ignores_nan_gaps():
 def test_shuffle_null_band_brackets_zero_for_white_noise():
     lo, hi = shuffle_null_band(rng().normal(size=2000), 2, n=200, rng=rng())
     assert (lo < 0).all() and (hi > 0).all()
+    assert (np.abs(lo) < 0.07).all() and (hi < 0.07).all()  # about +-1.96/sqrt(2000) = +-0.044, not a vacuous band

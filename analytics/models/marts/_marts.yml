@@ -92,7 +92,7 @@ models:
     description: >
       Every minute present in both the pipeline's candles and Coinbase's official candles, with the
       close-price difference and volume ratio. A minute agrees when the close is within 0.05% and
-      the volume within 5%. Disagreement is reported here, never failed as a test. Minutes containing REST-repaired trades are flagged (has_repaired_trades) and left out of the summary. Volume misses go both ways and include session-edge minutes where the producer started or stopped mid-minute. Close misses are not tick rounding: every pair's tick is under 0.011% of price, below the 0.05% tolerance (analysis/ Q4); POL's remain unexplained.
+      the volume within 5%. Disagreement is reported here, never failed as a test. Minutes containing REST-repaired trades are flagged (has_repaired_trades) and left out of the summary. Volume misses go both ways and include session-edge minutes where the producer started or stopped mid-minute. Close misses are not tick rounding: even at 90-day lows every pair's tick is at most 0.017% of price, below the 0.05% tolerance (analysis/ Q4); POL's remain unexplained.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
