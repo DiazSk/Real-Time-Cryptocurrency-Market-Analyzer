@@ -30,7 +30,7 @@ endif
 # Fallback if venv doesn't exist
 PYTHON_CMD = $(shell if [ -f "$(PYTHON)" ]; then echo "$(PYTHON)"; else echo "python"; fi)
 
-.PHONY: help setup setup-api setup-all start start-lite stop status health logs build-flink deploy-flink deploy-flink-fresh stop-flink topics producer consumer api test clean
+.PHONY: help setup setup-api setup-all start start-lite stop status health logs build-flink deploy-flink deploy-flink-fresh stop-flink topics producer consumer api test load-test chaos-test clean
 
 help: ## Show this help message
 	@echo ""
@@ -145,6 +145,12 @@ api: ## Run the FastAPI Backend
 test: ## Run Python and Flink unit tests
 	PYTHONPATH=. $(PYTHON) -m pytest -q
 	cd src/flink_jobs && mvn -q test
+
+load-test: ## Benchmark REST latency, WebSocket fan-out and freshness (full stack up; nothing on :8000)
+	$(PYTHON_CMD) -m benchmarks.load_test
+
+chaos-test: ## Inject 5 failures and measure recovery, lost trades and candle consistency (full stack up)
+	$(PYTHON_CMD) -m benchmarks.chaos_test
 
 # ============================================
 # Flink Commands

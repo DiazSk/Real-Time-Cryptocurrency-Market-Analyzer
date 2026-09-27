@@ -46,6 +46,7 @@ data/
 !frontend/package-lock.json
 !frontend/tsconfig.json
 !frontend/components.json
+!benchmarks/results/*.json
 
 # Flink
 flink-savepoints/
@@ -69,6 +70,7 @@ produce_test_*.py
 
 # Except: everything under tests/ (the *test*.py rule above targets ad-hoc scripts)
 !/tests/**
+!/benchmarks/*.py
 # But keep compiled bytecode ignored under tests/
 /tests/**/__pycache__/
 /tests/**/*.pyc
