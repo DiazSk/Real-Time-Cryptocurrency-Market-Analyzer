@@ -275,4 +275,3 @@ venv/bin/python scripts/wait_for_services.py all
 1. Check the logs: `docker-compose logs -f [service_name]`
 2. Verify healthchecks: `venv/bin/python scripts/wait_for_services.py all`
 3. Review this guide for common issues
-4. Check [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for more details
