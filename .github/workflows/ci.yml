@@ -75,5 +75,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: psql -v ON_ERROR_STOP=1 -q -f configs/init-db.sql
+      - run: psql -v ON_ERROR_STOP=1 -q -f configs/migrations/001_analytics.sql
+      - run: psql -v ON_ERROR_STOP=1 -q -f configs/migrations/001_analytics.sql # idempotent
       - run: psql -v ON_ERROR_STOP=1 -q -f tests/sql/schema_checks.sql
       - run: psql -v ON_ERROR_STOP=1 -q -f tests/sql/chaos_checks_test.sql
+      - run: psql -v ON_ERROR_STOP=1 -q -f tests/sql/analytics_schema_checks.sql

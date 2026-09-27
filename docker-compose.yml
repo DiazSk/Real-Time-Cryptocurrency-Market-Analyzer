@@ -83,6 +83,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./configs/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./configs/migrations/001_analytics.sql:/docker-entrypoint-initdb.d/zz-analytics.sql
     networks:
       - crypto-network
     # Double-$$ prevents Docker Compose from resolving the variable before passing
