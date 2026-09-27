@@ -1,5 +1,13 @@
 -- Pipeline candles win where they exist (they're what the product computes); exchange candles
 -- fill the 90-day history and any minute the pipeline missed.
+-- has_repaired_trades marks pipeline minutes rebuilt from REST-repaired trades: they came from
+-- Coinbase's own trade tape, so reconciliation leaves them out (see mart_pipeline_vs_exchange).
+with repaired_minutes as (
+    select distinct crypto_id, date_trunc('minute', event_time) as bucket
+    from {{ ref('stg_trades') }}
+    where source = 'rest_backfill'
+)
+
 select
     coalesce(p.crypto_id, e.crypto_id) as crypto_id,
     s.symbol,
@@ -14,9 +22,12 @@ select
     e.close as exchange_close,
     p.volume as pipeline_volume,
     e.volume as exchange_volume,
-    greatest(p.loaded_at, e.loaded_at) as loaded_at  -- when this minute last changed in either source
+    greatest(p.loaded_at, e.loaded_at) as loaded_at,  -- when this minute last changed in either source
+    rm.bucket is not null as has_repaired_trades
 from {{ ref('stg_pipeline_candles') }} p
 full outer join {{ ref('stg_exchange_candles') }} e
     on p.crypto_id = e.crypto_id and p.bucket = e.bucket
 join {{ ref('stg_symbols') }} s
     on s.crypto_id = coalesce(p.crypto_id, e.crypto_id)
+left join repaired_minutes rm
+    on rm.crypto_id = coalesce(p.crypto_id, e.crypto_id) and rm.bucket = coalesce(p.bucket, e.bucket)

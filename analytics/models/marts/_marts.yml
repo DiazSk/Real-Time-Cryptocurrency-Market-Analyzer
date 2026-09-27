@@ -92,14 +92,17 @@ models:
     description: >
       Every minute present in both the pipeline's candles and Coinbase's official candles, with the
       close-price difference and volume ratio. A minute agrees when the close is within 0.05% and
-      the volume within 5%. Disagreement is reported here, never failed as a test. Note: Coinbase's candle endpoint is not ground truth. On a checked POL window the pipeline matched Coinbase's own REST trade tape exactly (37/37 trades, identical volume) while the candle endpoint reported ~3% more volume, so disagreement concentrates in thin, low-priced pairs and in session-edge minutes where the producer started or stopped mid-minute.
+      the volume within 5%. Disagreement is reported here, never failed as a test. Minutes containing REST-repaired trades are flagged (has_repaired_trades) and left out of the summary. Close misses on low-priced pairs are often a single price tick at this 0.05% tolerance; volume misses go both ways and include session-edge minutes where the producer started or stopped mid-minute.
     data_tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [crypto_id, bucket]
 
   - name: mart_pipeline_vs_exchange_summary
-    description: Share of overlapping minutes where the pipeline agrees with the exchange, per symbol.
+    description: >
+      Per symbol, the share of overlapping minutes where the stream-built candle agrees with Coinbase's
+      candle (close and volume, and each separately). Minutes rebuilt from REST-repaired trades are
+      excluded and counted in n_repaired_minutes.
     columns:
       - name: crypto_id
         data_tests: [unique, not_null]

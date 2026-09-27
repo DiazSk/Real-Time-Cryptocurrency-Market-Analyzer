@@ -20,7 +20,8 @@ select
     u.pipeline_volume,
     u.exchange_volume,
     r.log_return,
-    u.loaded_at
+    u.loaded_at,
+    u.has_repaired_trades
 from {{ ref('int_candles_unified') }} u
 join {{ ref('int_returns_1m') }} r using (crypto_id, bucket)
 {% if is_incremental() %}

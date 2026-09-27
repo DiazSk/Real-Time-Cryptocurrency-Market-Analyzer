@@ -37,10 +37,15 @@ unit_tests:
       - input: ref('stg_symbols')
         rows:
           - {crypto_id: 1, symbol: BTC}
+      - input: ref('stg_trades')
+        rows:
+          # a REST-repaired trade in 00:00 marks that minute; the stream trade in 00:01 doesn't
+          - {crypto_id: 1, trade_id: 7, event_time: '2026-09-20 00:00:30+00', source: rest_backfill}
+          - {crypto_id: 1, trade_id: 8, event_time: '2026-09-20 00:01:30+00', source: stream}
     expect:
       rows:
-        - {crypto_id: 1, symbol: BTC, bucket: '2026-09-20 00:00:00+00', close: 10.5, volume: 2, source: pipeline, pipeline_close: 10.5, exchange_close: 20.5}
-        - {crypto_id: 1, symbol: BTC, bucket: '2026-09-20 00:01:00+00', close: 21.5, volume: 5, source: exchange, pipeline_close: null, exchange_close: 21.5}
+        - {crypto_id: 1, symbol: BTC, bucket: '2026-09-20 00:00:00+00', close: 10.5, volume: 2, source: pipeline, pipeline_close: 10.5, exchange_close: 20.5, has_repaired_trades: true}
+        - {crypto_id: 1, symbol: BTC, bucket: '2026-09-20 00:01:00+00', close: 21.5, volume: 5, source: exchange, pipeline_close: null, exchange_close: 21.5, has_repaired_trades: false}
 
   - name: gap_minute_has_no_return
     model: int_returns_1m
