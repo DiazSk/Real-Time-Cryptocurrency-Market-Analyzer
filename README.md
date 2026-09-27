@@ -4,7 +4,7 @@
 
 A streaming data pipeline that takes **every trade** for 8 crypto pairs from Coinbase's live feed, deduplicates it, rolls it up into 1-minute OHLCV candles in event time with Apache Flink, flags unusual price moves with a z-score detector, and serves the results to a Next.js market terminal over REST and WebSocket.
 
-**Stack:** Python · Kafka · Apache Flink (Java) · TimescaleDB · Redis · FastAPI · Next.js · Docker Compose
+**Stack:** Python · Kafka · Apache Flink (Java) · TimescaleDB · Redis · dbt · Airflow · FastAPI · Next.js · Docker Compose
 
 **Tracks:** BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, POL
 
@@ -25,6 +25,11 @@ All numbers are measured and reproducible. The pipeline numbers come from a 38-m
 | Redis down for 30 s | API 100% available (served from Postgres); live trades resumed 0.7 s after Redis came back in this run. The listener's reconnect backoff caps this at 30 s |
 | Producer restart | 1 trade missed while it reconnected (Coinbase doesn't replay the feed) |
 | Anomaly alert | Injected price jump detected at z = 63.3, written once to Postgres and once to Kafka (read_committed) |
+| Candle history | **911,759** one-minute candles modeled in dbt (8 pairs, 90 days); the hourly incremental run picks up late-arriving backfill |
+| Trade-gap repair | 57 gaps found; **43 repaired exactly by trade ID** (68,793 trades, 2,573 candles recomputed); 14 overnight outages above the 10,000-trade cap skipped and logged |
+| Pipeline vs exchange | Agrees with Coinbase's candles on 93–96% of minutes for BTC, ETH, SOL and XRP. On a checked POL window the pipeline matched Coinbase's own trade record exactly (37/37 trades); Coinbase's candle endpoint reported about 3% more volume, so thin pairs agree less (POL 36%, DOGE 52%) |
+| Volatility clustering | Hour-to-hour correlation of realized volatility is **0.66** (14,460 hour pairs) |
+| Signal follow-through | 4,391 extreme 1-minute moves (\|z\| > 4) over 90 days; only about 45% kept going the same direction 15 minutes later |
 
 Flink's restart backoff sets the recovery times. It starts at 10 s and doubles up to 2 min, and failures within the same hour keep it raised. The chaos run followed earlier test failures, so the TaskManager and Postgres recoveries hit the long end of that range. The Redis scenario found a real bug: the API's pub/sub listener died on redis-py's own `ConnectionError`, so live trades never came back after a Redis restart. It's now fixed and covered by a test.
 
@@ -45,6 +50,13 @@ flowchart LR
     R --> API
     API --> UI["Next.js terminal"]
     CG["CoinGecko API"] --> UI
+    subgraph AF["Airflow DAG (hourly)"]
+        BF["Backfill<br/>90-day candles · trade-gap repair"] --> DBT["dbt build<br/>staging → marts + tests"]
+    end
+    CBR["Coinbase REST"] --> BF
+    BF --> TS
+    TS --> DBT
+    DBT --> M[("Analytics marts<br/>volatility · seasonality · signals<br/>pipeline vs exchange")]
 ```
 
 - **Event time:** candles use the exchange's trade timestamp. Watermarks allow 2 s of out-of-order data and a 30 s idle timeout.
@@ -61,6 +73,31 @@ flowchart LR
 | Redis latest value + Pub/Sub | `SETEX` + `PUBLISH` | At least once (clients dedupe) |
 
 Checkpoints run every 30 s in exactly-once mode with RocksDB state. Deploys go through a savepoint (`make deploy-flink`), so a redeploy keeps the in-progress minute and the detector's state.
+
+## Analytics layer
+
+The dbt project in [`analytics/`](analytics/) reads the pipeline's tables from TimescaleDB:
+- **Staging:** renames and casts only.
+- **Intermediate:** one unified candle per symbol-minute (pipeline first, exchange as fallback) and gap-aware log returns.
+- **Marts**, one per question:
+
+| Mart | Question |
+|---|---|
+| `mart_volatility_hourly` | Do volatile hours follow volatile hours? |
+| `mart_seasonality` | Which weekday and hour is each market most active? |
+| `mart_signals`, `mart_signal_precision` | After an extreme move, does the price continue or revert? The same z-score rule as Flink, rerun over 90 days |
+| `mart_pipeline_vs_exchange` | How often does the streaming pipeline agree with Coinbase's official candles? |
+
+`dbt build` runs 49 checks: every model plus generic tests, singular tests (OHLC bounds, no future candles, signal warm-up) and **dbt unit tests** on the riskiest logic (source precedence, gap-aware returns, the z-score warm-up, late-arriving backfill). Disagreement between the pipeline and the exchange is reported in a mart, never failed as a test.
+
+**Airflow** runs `backfill_candles → repair_trade_gaps → dbt` every hour. Astronomer Cosmos renders each dbt model as its own run and test task, 29 tasks in all.
+
+```bash
+make migrate && make backfill   # schema changes, then 90 days of candles + gap repair (~15 min first run, seconds after)
+make dbt                        # build and test every model
+make dbt-docs                   # lineage graph and column docs on :8088
+make airflow-setup && make airflow   # Airflow UI on :8080 (separate venv)
+```
 
 ## Quick start
 
@@ -103,7 +140,7 @@ The tracked symbols live in one place, the `cryptocurrencies` table. To add a pa
 
 ## Tests and benchmarks
 
-`make test` runs 94 pytest tests (producer, API, lite consumer, benchmark helpers and chaos safety) and 22 JUnit tests (deserializer, dedup, candle aggregator, anomaly detector). CI also runs the schema checks and the chaos-check SQL against a clean TimescaleDB.
+`make test` runs 108 pytest tests (producer, API, lite consumer, backfill, benchmark helpers and chaos safety) and 22 JUnit tests (deserializer, dedup, candle aggregator, anomaly detector). CI has 6 jobs. Besides the unit tests and frontend build, it runs the schema and chaos-check SQL on a clean TimescaleDB, `dbt build` against a seeded fixture, and an Airflow check that the DAG imports and renders its per-model tasks.
 
 `make load-test` (about 9 min) and `make chaos-test` (about 25 min) reproduce the numbers above against the local stack and write JSON results to [`benchmarks/results/`](benchmarks/results/). Each file records its conditions.
 
@@ -122,6 +159,9 @@ The tracked symbols live in one place, the `cryptocurrencies` table. To add a pa
 src/producers/     Coinbase → Kafka trade producer
 src/flink_jobs/    Flink job (Java): dedup, candles, anomaly detector, sinks
 src/consumers/     Lite-mode Python consumer
+src/backfill/      Coinbase REST candle backfill and trade-gap repair
+analytics/         dbt project: staging, intermediate, marts, tests, docs
+airflow/dags/      Hourly crypto_analytics DAG (Cosmos renders the dbt models)
 src/api/           FastAPI app (asyncpg, redis.asyncio)
 configs/           TimescaleDB schema, continuous aggregates, Flink config
 frontend/          Next.js 16 terminal (bklit charts, Tailwind v4, zod)
