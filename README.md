@@ -103,7 +103,7 @@ The tracked symbols live in one place, the `cryptocurrencies` table. To add a pa
 
 ## Tests and benchmarks
 
-`make test` runs 87 pytest tests (producer, API, lite consumer, benchmark helpers) and 22 JUnit tests (deserializer, dedup, candle aggregator, anomaly detector). CI also runs the schema checks and the chaos-check SQL against a clean TimescaleDB.
+`make test` runs 94 pytest tests (producer, API, lite consumer, benchmark helpers and chaos safety) and 22 JUnit tests (deserializer, dedup, candle aggregator, anomaly detector). CI also runs the schema checks and the chaos-check SQL against a clean TimescaleDB.
 
 `make load-test` (about 9 min) and `make chaos-test` (about 25 min) reproduce the numbers above against the local stack and write JSON results to [`benchmarks/results/`](benchmarks/results/). Each file records its conditions.
 
