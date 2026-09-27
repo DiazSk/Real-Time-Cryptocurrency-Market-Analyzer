@@ -1,0 +1,136 @@
+{
+  "started": "2026-09-27 07:03:28.996807+00:00",
+  "conditions": {
+    "host": "macOS-26.6.2-arm64-arm-64bit",
+    "cpu_count": 10,
+    "docker_mem_bytes": 4180918272,
+    "api_workers": 1,
+    "load_generator": "same machine as the stack"
+  },
+  "scenarios": [
+    {
+      "name": "taskmanager",
+      "t_fault": "2026-09-27 07:04:29.671743+00:00",
+      "t_cleared": "2026-09-27 07:04:30.354083+00:00",
+      "t_recovered": "2026-09-27 07:06:25.168997+00:00",
+      "recovered": true,
+      "recovery_seconds": 115.497254,
+      "outage_seconds": 0,
+      "gaps_by_symbol": {
+        "ADA": 0,
+        "AVAX": 0,
+        "BTC": 0,
+        "DOGE": 0,
+        "ETH": 0,
+        "POL": 0,
+        "SOL": 0,
+        "XRP": 0
+      },
+      "gaps_total": 0,
+      "candle_mismatches": [],
+      "send_errors_delta": 0,
+      "flink_running": true
+    },
+    {
+      "name": "kafka",
+      "t_fault": "2026-09-27 07:09:35.338748+00:00",
+      "t_cleared": "2026-09-27 07:09:36.623123+00:00",
+      "t_recovered": "2026-09-27 07:09:40.848555+00:00",
+      "recovered": true,
+      "recovery_seconds": 5.509807,
+      "outage_seconds": 0,
+      "gaps_by_symbol": {
+        "ADA": 0,
+        "AVAX": 0,
+        "BTC": 0,
+        "DOGE": 0,
+        "ETH": 0,
+        "POL": 0,
+        "SOL": 0,
+        "XRP": 0
+      },
+      "gaps_total": 0,
+      "candle_mismatches": [],
+      "send_errors_delta": 0,
+      "flink_running": true
+    },
+    {
+      "name": "postgres",
+      "t_fault": "2026-09-27 07:12:51.030199+00:00",
+      "t_cleared": "2026-09-27 07:13:21.790113+00:00",
+      "t_recovered": "2026-09-27 07:14:54.273752+00:00",
+      "recovered": true,
+      "recovery_seconds": 123.243553,
+      "outage_seconds": 30,
+      "gaps_by_symbol": {
+        "ADA": 0,
+        "AVAX": 0,
+        "BTC": 0,
+        "DOGE": 0,
+        "ETH": 0,
+        "POL": 0,
+        "SOL": 0,
+        "XRP": 0
+      },
+      "gaps_total": 0,
+      "candle_mismatches": [],
+      "send_errors_delta": 0,
+      "flink_running": true
+    },
+    {
+      "name": "redis",
+      "t_fault": "2026-09-27 07:18:04.470674+00:00",
+      "t_cleared": "2026-09-27 07:18:37.272488+00:00",
+      "t_recovered": "2026-09-27 07:18:38.347325+00:00",
+      "recovered": true,
+      "recovery_seconds": 33.876651,
+      "outage_seconds": 30,
+      "gaps_by_symbol": {
+        "ADA": 0,
+        "AVAX": 0,
+        "BTC": 0,
+        "DOGE": 0,
+        "ETH": 0,
+        "POL": 0,
+        "SOL": 0,
+        "XRP": 0
+      },
+      "gaps_total": 0,
+      "candle_mismatches": [],
+      "send_errors_delta": 0,
+      "flink_running": true,
+      "api_probe": {
+        "requests": 785,
+        "availability": 1.0,
+        "sources": {
+          "redis": 642,
+          "postgres": 143
+        }
+      },
+      "ws_trade_resumed_seconds": 0.7170360088348389
+    },
+    {
+      "name": "producer",
+      "t_fault": "2026-09-27 07:21:48.716043+00:00",
+      "t_cleared": "2026-09-27 07:21:48.793563+00:00",
+      "t_recovered": "2026-09-27 07:21:50.964936+00:00",
+      "recovered": true,
+      "recovery_seconds": 2.248893,
+      "outage_seconds": 0,
+      "gaps_by_symbol": {
+        "ADA": 0,
+        "AVAX": 0,
+        "BTC": 1,
+        "DOGE": 0,
+        "ETH": 0,
+        "POL": 0,
+        "SOL": 0,
+        "XRP": 0
+      },
+      "gaps_total": 1,
+      "candle_mismatches": [],
+      "send_errors_delta": 0,
+      "flink_running": true
+    }
+  ]
+}

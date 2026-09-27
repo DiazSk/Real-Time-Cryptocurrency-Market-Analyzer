@@ -1,0 +1,257 @@
+{
+  "started": "2026-09-27 06:55:27.022576+00:00",
+  "conditions": {
+    "host": "macOS-26.6.2-arm64-arm-64bit",
+    "cpu_count": 10,
+    "docker_mem_bytes": 4180918272,
+    "api_workers": 1,
+    "load_generator": "same machine as the stack",
+    "clock_offset_seconds": 0.027855
+  },
+  "rest": [
+    {
+      "clients": 10,
+      "latency_ms": {
+        "p50": 5.158125073648989,
+        "p95": 12.778681283816695,
+        "p99": 18.785001169890165
+      },
+      "endpoints": {
+        "/api/v1/latest/all": {
+          "requests": 24596,
+          "rps": 409.93333333333334,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 4.173771012574434,
+            "p95": 11.579978512600064,
+            "p99": 17.75889208074659
+          }
+        },
+        "/api/v1/latest/BTC": {
+          "requests": 24594,
+          "rps": 409.9,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 3.879645955748856,
+            "p95": 11.234396102372557,
+            "p99": 17.34997149091214
+          }
+        },
+        "/api/v1/historical/BTC?interval=1m": {
+          "requests": 24594,
+          "rps": 409.9,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 6.893145968206227,
+            "p95": 14.504260092508048,
+            "p99": 20.378335535060614
+          }
+        },
+        "/api/v1/trades/BTC?seconds=60": {
+          "requests": 24588,
+          "rps": 409.8,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 5.585125065408647,
+            "p95": 12.796844297554344,
+            "p99": 18.677329944912344
+          }
+        }
+      },
+      "latest_sources": {
+        "none": 24596,
+        "redis": 24594
+      }
+    },
+    {
+      "clients": 50,
+      "latency_ms": {
+        "p50": 102.73737506940961,
+        "p95": 460.0350756663829,
+        "p99": 723.9377518277615
+      },
+      "endpoints": {
+        "/api/v1/latest/all": {
+          "requests": 4962,
+          "rps": 82.7,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 99.00183347053826,
+            "p95": 449.72937295679003,
+            "p99": 733.0107854865491
+          }
+        },
+        "/api/v1/latest/BTC": {
+          "requests": 4948,
+          "rps": 82.46666666666667,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 102.92352107353508,
+            "p95": 470.47661470714957,
+            "p99": 720.6506924307905
+          }
+        },
+        "/api/v1/historical/BTC?interval=1m": {
+          "requests": 4930,
+          "rps": 82.16666666666667,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 107.3200210230425,
+            "p95": 448.98023147834465,
+            "p99": 743.6000644648448
+          }
+        },
+        "/api/v1/trades/BTC?seconds=60": {
+          "requests": 4925,
+          "rps": 82.08333333333333,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 100.47941701486707,
+            "p95": 465.82107534632087,
+            "p99": 705.364448055625
+          }
+        }
+      },
+      "latest_sources": {
+        "none": 4962,
+        "redis": 4948
+      }
+    },
+    {
+      "clients": 100,
+      "latency_ms": {
+        "p50": 179.87545882351696,
+        "p95": 1339.3285661470145,
+        "p99": 2356.786552174017
+      },
+      "endpoints": {
+        "/api/v1/latest/all": {
+          "requests": 4240,
+          "rps": 70.66666666666667,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 165.82716698758304,
+            "p95": 1294.2557163420133,
+            "p99": 2382.4744916777126
+          }
+        },
+        "/api/v1/latest/BTC": {
+          "requests": 4214,
+          "rps": 70.23333333333333,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 187.3887499095872,
+            "p95": 1329.340974916704,
+            "p99": 2343.368181993719
+          }
+        },
+        "/api/v1/historical/BTC?interval=1m": {
+          "requests": 4186,
+          "rps": 69.76666666666667,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 186.20129162445664,
+            "p95": 1372.733530763071,
+            "p99": 2458.550951734651
+          }
+        },
+        "/api/v1/trades/BTC?seconds=60": {
+          "requests": 4163,
+          "rps": 69.38333333333334,
+          "error_rate": 0.0,
+          "latency_ms": {
+            "p50": 179.23175008036196,
+            "p95": 1358.2679209066555,
+            "p99": 2190.510730650276
+          }
+        }
+      },
+      "latest_sources": {
+        "none": 4240,
+        "redis": 4214
+      }
+    }
+  ],
+  "websocket": {
+    "steps": [
+      {
+        "clients": 25,
+        "connected": 25,
+        "max_trades": 269,
+        "min_delivery_ratio": 1.0,
+        "passed": true,
+        "lag_ms": {
+          "p50": 16.398906707763672,
+          "p95": 99.19958114624023,
+          "p99": 111.90269470214844
+        }
+      },
+      {
+        "clients": 50,
+        "connected": 50,
+        "max_trades": 327,
+        "min_delivery_ratio": 1.0,
+        "passed": true,
+        "lag_ms": {
+          "p50": 19.16050910949707,
+          "p95": 86.94267272949219,
+          "p99": 125.89684247970581
+        }
+      },
+      {
+        "clients": 100,
+        "connected": 100,
+        "max_trades": 310,
+        "min_delivery_ratio": 1.0,
+        "passed": true,
+        "lag_ms": {
+          "p50": 23.503422737121582,
+          "p95": 86.5439772605896,
+          "p99": 124.62201833724976
+        }
+      },
+      {
+        "clients": 200,
+        "connected": 200,
+        "max_trades": 293,
+        "min_delivery_ratio": 1.0,
+        "passed": true,
+        "lag_ms": {
+          "p50": 56.860923767089844,
+          "p95": 136.02372407913208,
+          "p99": 160.69107055664062
+        }
+      },
+      {
+        "clients": 400,
+        "connected": 400,
+        "max_trades": 310,
+        "min_delivery_ratio": 1.0,
+        "passed": true,
+        "lag_ms": {
+          "p50": 70.72305679321289,
+          "p95": 165.630304813385,
+          "p99": 185.71929931640625
+        }
+      }
+    ],
+    "max_clients_at_99pct_delivery": 400
+  },
+  "freshness": {
+    "ingestion_lag_ms": {
+      "p50": 10.841,
+      "p95": 91.695
+    },
+    "exchange_to_client_lag_ms": {
+      "p50": 16.398906707763672,
+      "p95": 99.19958114624023,
+      "p99": 111.90269470214844
+    }
+  },
+  "caveats": [
+    "Load generator and stack share one machine; numbers are a lower bound.",
+    "API runs as a single uvicorn process.",
+    "Exchange-to-client lag includes Coinbase network delay and local clock offset.",
+    "Trade frames take producer -> Redis -> API and skip Kafka/Flink."
+  ]
+}

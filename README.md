@@ -8,15 +8,25 @@ A streaming data pipeline that takes **every trade** for 8 crypto pairs from Coi
 
 **Tracks:** BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, POL
 
-## Results (measured on a 38-minute run)
+## Results
+
+All numbers are measured and reproducible. The pipeline numbers come from a 38-minute acceptance run. The load and chaos numbers come from `make load-test` and `make chaos-test`, run on an M-series MacBook (10 cores, 4 GB for Docker) with a single API process and the load generator on the same machine.
 
 | What | Result |
 |---|---|
 | Trades ingested | 17,969, with 0 duplicates and 0 missed (checked with trade-ID gap tracking) |
 | Candle correctness | 0 bad candles: every candle has `trade_count > 0` and `low ≤ VWAP ≤ high` |
-| Failure recovery | TaskManager killed mid-stream, job back to `RUNNING` in about 15 s from a checkpoint, 0 duplicate rows afterwards |
+| REST latency | p95 **12.8 ms** at 10 concurrent clients and **460 ms** at 50 clients, 0 errors ([load results](benchmarks/results/2026-09-27-load.json)) |
+| Live WebSocket fan-out | **400 clients** (the highest step tested) all received 100% of trades, p95 exchange-to-client lag **166 ms** |
+| Ingestion lag | p95 **92 ms** from the exchange's trade timestamp to the producer (the clock offset, 28 ms, is recorded) |
+| Flink TaskManager crash | 0 lost trades, 0 inconsistent candles; data flowing again after 116 s ([chaos results](benchmarks/results/2026-09-27-chaos.json)) |
+| Kafka broker restart | 0 lost trades; data flowing again after 5.5 s |
+| Postgres down for 30 s | 0 lost trades, 0 inconsistent candles; data flowing again 123 s after the fault |
+| Redis down for 30 s | API 100% available (served from Postgres); live trades resumed 0.7 s after Redis came back |
+| Producer restart | 1 trade missed while it reconnected (Coinbase doesn't replay the feed) |
 | Anomaly alert | Injected price jump detected at z = 63.3, written once to Postgres and once to Kafka (read_committed) |
-| Cache fallback | With Redis flushed, `/latest` keeps serving from TimescaleDB (`X-Data-Source: postgres`) |
+
+Flink's restart backoff sets the recovery times. It starts at 10 s and doubles up to 2 min, and failures within the same hour keep it raised. The chaos run followed earlier test failures, so the TaskManager and Postgres recoveries hit the long end of that range. In an earlier smoke run, a first Postgres failure recovered in 33 s. The Redis scenario found a real bug: the API's pub/sub listener died on redis-py's own `ConnectionError`, so live trades never came back after a Redis restart. It's now fixed and covered by a test.
 
 The full acceptance log is in [the design spec](docs/superpowers/specs/2026-09-25-real-ingestion-and-correctness-design.md#acceptance-run-2026-09-26).
 
@@ -91,9 +101,11 @@ To stop everything, run `bash scripts/stop_pipeline.sh`. Running `bash scripts/t
 
 The tracked symbols live in one place, the `cryptocurrencies` table. To add a pair, insert a row there and restart the producer and API.
 
-## Tests
+## Tests and benchmarks
 
-`make test` runs 78 pytest tests (producer, API, lite consumer) and 22 JUnit tests (deserializer, dedup, candle aggregator, anomaly detector).
+`make test` runs 87 pytest tests (producer, API, lite consumer, benchmark helpers) and 22 JUnit tests (deserializer, dedup, candle aggregator, anomaly detector). CI also runs the schema checks and the chaos-check SQL against a clean TimescaleDB.
+
+`make load-test` (about 9 min) and `make chaos-test` (about 25 min) reproduce the numbers above against the local stack and write JSON results to [`benchmarks/results/`](benchmarks/results/). Each file records its conditions.
 
 ## Known limitations
 
@@ -101,6 +113,8 @@ The tracked symbols live in one place, the `cryptocurrencies` table. To add a pa
 - `/trending` stays empty until about 24 hours of candles exist.
 - The producer's Kafka client (`kafka-python-ng`) has no idempotent mode. Downstream dedup absorbs retried sends.
 - This runs as a local topology with one Kafka broker and one TaskManager.
+- With a single API process, REST p95 rises to 1.3 s at 100 concurrent clients. Running more uvicorn workers is the next step.
+- Recovery after a Flink failure can take up to about 2 minutes, because of the exponential restart backoff.
 
 ## Repository layout
 
