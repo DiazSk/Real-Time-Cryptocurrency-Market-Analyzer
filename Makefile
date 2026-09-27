@@ -30,7 +30,7 @@ endif
 # Fallback if venv doesn't exist
 PYTHON_CMD = $(shell if [ -f "$(PYTHON)" ]; then echo "$(PYTHON)"; else echo "python"; fi)
 
-.PHONY: help setup setup-api setup-all start start-lite stop status health logs build-flink deploy-flink deploy-flink-fresh stop-flink topics producer consumer api test load-test chaos-test migrate backfill dbt dbt-docs airflow-setup airflow clean
+.PHONY: help setup setup-api setup-all start start-lite stop status health logs build-flink deploy-flink deploy-flink-fresh stop-flink topics producer consumer api test load-test chaos-test migrate backfill dbt dbt-docs airflow-setup airflow analysis clean
 
 help: ## Show this help message
 	@echo ""
@@ -157,6 +157,9 @@ dbt: ## Build and test every dbt model (analytics/), reading DB settings from .e
 
 dbt-docs: ## Generate and serve the dbt docs + lineage graph on :8088
 	set -a; . ./.env; set +a; cd analytics && ../$(VENV_BIN)/dbt docs generate && ../$(VENV_BIN)/dbt docs serve --port 8088
+
+analysis: dbt ## Rebuild the marts, then re-execute analysis/market_analysis.ipynb in place (charts + findings)
+	$(VENV_BIN)/jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=900 analysis/market_analysis.ipynb
 
 AIRFLOW_VERSION = 3.3.2
 AIRFLOW_CONSTRAINTS = https://raw.githubusercontent.com/apache/airflow/constraints-$(AIRFLOW_VERSION)/constraints-3.12.txt
