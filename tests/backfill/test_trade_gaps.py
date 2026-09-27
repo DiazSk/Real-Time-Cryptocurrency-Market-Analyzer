@@ -39,9 +39,11 @@ class FakeCursor:
 
     def execute(self, sql, params=None):
         self.conn.calls.append(("execute", sql, params))
+        self.conn.autocommit_during_calls.append(self.conn.autocommit)
 
     def executemany(self, sql, rows):
         self.conn.calls.append(("executemany", sql, list(rows)))
+        self.conn.autocommit_during_calls.append(self.conn.autocommit)
 
     def fetchall(self):
         return self.conn.gaps
@@ -50,6 +52,8 @@ class FakeCursor:
 class FakeConn:
     def __init__(self, gaps):
         self.gaps, self.calls, self.commits = gaps, [], 0
+        self.autocommit = False
+        self.autocommit_during_calls = []
 
     def cursor(self):
         return FakeCursor(self)
@@ -93,3 +97,24 @@ def test_gap_larger_than_the_cap_is_skipped_without_any_request():
     conn = FakeConn(gaps=[(1, "BTC", "BTC-USD", 100, 100 + MAX_GAP + 2)])
     report = repair_gaps(conn, api)
     assert report["gaps_skipped"] == 1 and report["trades_inserted"] == 0 and requested == []
+
+
+def test_repair_refreshes_the_continuous_aggregates_over_the_repaired_range():
+    # The caggs' own refresh policies only look back 1-24 h; older repairs would never reach them.
+    api, _ = api_with_pages({103: ([trade(102, 5)], 102), 102: ([trade(101, 7), trade(100)], 100)})
+    conn = FakeConn(gaps=[(1, "BTC", "BTC-USD", 100, 103)])
+    repair_gaps(conn, api)
+    refreshes = [(sql, params, auto) for (kind, sql, params), auto in zip(conn.calls, conn.autocommit_during_calls)
+                 if "refresh_continuous_aggregate" in sql]
+    minute = datetime(2026, 9, 27, 7, 50, tzinfo=timezone.utc)
+    assert [sql.split("'")[1] for sql, _, _ in refreshes] == ["candles_5m", "candles_15m", "candles_1h"]
+    assert all(lo <= minute and hi > minute for _, (lo, hi), _ in refreshes)
+    assert all(auto for _, _, auto in refreshes)  # CALL can't run inside a transaction block
+    assert conn.autocommit is False  # restored afterwards
+
+
+def test_no_refresh_when_nothing_was_repaired():
+    api, _ = api_with_pages({})
+    conn = FakeConn(gaps=[])
+    repair_gaps(conn, api)
+    assert not any("refresh_continuous_aggregate" in c[1] for c in conn.calls)

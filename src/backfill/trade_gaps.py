@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 MAX_GAP = 10_000
 MINUTE = timedelta(minutes=1)
+# The caggs' refresh policies only look back 1-24 h, so a repair older than that must refresh them.
+CAGGS = (("candles_5m", timedelta(minutes=5)), ("candles_15m", timedelta(minutes=15)), ("candles_1h", timedelta(hours=1)))
 
 GAPS_SQL = """
 SELECT g.crypto_id, c.symbol, c.coinbase_product, g.prev_id, g.trade_id
@@ -56,7 +58,19 @@ def _row(crypto_id, t):
     return (crypto_id, t["trade_id"], Decimal(t["price"]), Decimal(t["size"]), t["side"], None, event_time)
 
 
+def refresh_aggregates(conn, lo, hi):
+    """Re-materialize the 5m/15m/1h rollups over [lo, hi], padded by one bucket on each side."""
+    conn.autocommit = True  # CALL refresh_continuous_aggregate can't run inside a transaction block
+    try:
+        with conn.cursor() as cur:
+            for name, width in CAGGS:
+                cur.execute(f"CALL refresh_continuous_aggregate('{name}', %s, %s)", (lo - width, hi + width))
+    finally:
+        conn.autocommit = False
+
+
 def repair_gaps(conn, api):
+    repaired_minutes = []
     report = {"gaps_found": 0, "gaps_repaired": 0, "gaps_skipped": 0, "trades_inserted": 0, "minutes_recomputed": 0}
     with conn.cursor() as cur:
         cur.execute(GAPS_SQL)
@@ -78,9 +92,12 @@ def repair_gaps(conn, api):
         conn.commit()
         report["trades_inserted"] += len(rows)
         report["minutes_recomputed"] += len(minutes)
+        repaired_minutes += minutes
         if len(rows) == missing:
             report["gaps_repaired"] += 1
         else:
             logger.warning("%s: gap after %d: fetched %d of %d missing trades", symbol, prev_id, len(rows), missing)
+    if repaired_minutes:
+        refresh_aggregates(conn, min(repaired_minutes), max(repaired_minutes) + MINUTE)
     logger.info("trade gaps: %s", report)
     return report
