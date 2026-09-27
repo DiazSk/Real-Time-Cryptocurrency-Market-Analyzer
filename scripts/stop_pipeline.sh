@@ -9,7 +9,7 @@ cd "$REPO_ROOT"
 
 # ── Stop producer ─────────────────────────────────────────────────────────────
 echo "Stopping producer..."
-pkill -f "src.producers.coinbase_trades_producer" 2>/dev/null && echo "  Producer stopped." || echo "  Producer not running."
+pkill -f '(^|/)[Pp]ython[0-9.]* -m src\.producers\.coinbase_trades_producer( |$)' 2>/dev/null && echo "  Producer stopped." || echo "  Producer not running."
 
 # ── Cancel Flink job (if JobManager is up) ────────────────────────────────────
 echo "Checking for running Flink jobs..."

@@ -25,6 +25,8 @@ from src.config import POSTGRES_CONNECT_KWARGS
 
 SCENARIOS = ["taskmanager", "kafka", "postgres", "redis", "producer"]
 PRODUCER = "src.producers.coinbase_trades_producer"
+# Anchored so editors, pagers or tests that mention the file path never match (they would get SIGKILLed).
+PRODUCER_PGREP = r"(^|/)[Pp]ython[0-9.]* -m src\.producers\.coinbase_trades_producer( |$)"
 PRODUCER_LOG = ROOT / "logs" / "producer.log"
 BASELINE_S, OUTAGE_S, RECOVERY_TIMEOUT_S, SETTLE_S = 60, 30, 300, 60 + 70
 CHECKS_SQL = (ROOT / "benchmarks" / "checks.sql").read_text()
@@ -35,6 +37,12 @@ producer_killed = False
 
 def docker(*args):
     subprocess.run(["docker", *args], check=True, capture_output=True, text=True)
+
+
+def stop_container(name):
+    """Track before stopping: a Ctrl-C that lands mid-`docker stop` must still restore the container."""
+    stopped_containers.add(name)
+    docker("stop", name)
 
 
 def assert_local_stack():
@@ -48,7 +56,7 @@ def send_errors_now():
 
 
 def producer_pids():
-    out = subprocess.run(["pgrep", "-f", PRODUCER], capture_output=True, text=True).stdout.split()
+    out = subprocess.run(["pgrep", "-f", PRODUCER_PGREP], capture_output=True, text=True).stdout.split()
     return [int(p) for p in out if int(p) != os.getpid()]
 
 
@@ -150,8 +158,7 @@ async def run_scenario(name):
     elif name == "kafka":
         docker("restart", "kafka")
     elif name == "postgres":
-        docker("stop", "postgres")
-        stopped_containers.add("postgres")
+        stop_container("postgres")
         await asyncio.sleep(OUTAGE_S)
         docker("start", "postgres")
         stopped_containers.discard("postgres")
@@ -161,8 +168,7 @@ async def run_scenario(name):
         probe = asyncio.create_task(probe_latest(stop_probe))
         ws_task = asyncio.create_task(first_trade_after(cleared, cleared_at))
         await asyncio.sleep(2)  # let the WS client connect before Redis goes away
-        docker("stop", "redis")
-        stopped_containers.add("redis")
+        stop_container("redis")
         await asyncio.sleep(OUTAGE_S)
         docker("start", "redis")
         stopped_containers.discard("redis")
