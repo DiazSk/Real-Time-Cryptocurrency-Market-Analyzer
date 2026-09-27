@@ -172,5 +172,5 @@ src/api/           FastAPI app (asyncpg, redis.asyncio)
 configs/           TimescaleDB schema, continuous aggregates, Flink config
 frontend/          Next.js 16 terminal (bklit charts, Tailwind v4, zod)
 tests/             Python tests
-docs/              Operational guides (API, Flink, Docker, troubleshooting)
+docs/              Acceptance-run log and operational guides (API, database, Flink, Redis, local setup)
 ```
