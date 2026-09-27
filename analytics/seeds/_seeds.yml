@@ -1,0 +1,14 @@
+version: 2
+
+seeds:
+  - name: product_ticks
+    description: Coinbase price increment (one tick) per pair, used to test the tick-size explanation for close-price disagreement.
+    config:
+      column_types:
+        quote_increment: numeric
+    columns:
+      - name: symbol
+        data_tests: [unique, not_null]
+      - name: quote_increment
+        description: Smallest price step on Coinbase for this pair.
+        data_tests: [not_null]

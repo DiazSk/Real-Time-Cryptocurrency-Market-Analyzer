@@ -107,6 +107,21 @@ models:
       - name: crypto_id
         data_tests: [unique, not_null]
 
+  - name: mart_minute_outcomes
+    description: >
+      Every scored minute with its 15-minute outcome: the baseline that signal continuation rates are
+      compared against. Same z-score rule as mart_signals; minutes with a zero return (now or 15
+      minutes later) are excluded.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [crypto_id, bucket]
+    columns:
+      - name: is_signal
+        description: True when |z| > 4, i.e. the minute is also in mart_signals.
+      - name: continued_15m
+        description: True when the 15-minute forward return has the same sign as the minute's return.
+
 unit_tests:
   - name: spike_after_warmup_fires_and_spike_during_warmup_does_not
     model: mart_signals
@@ -165,3 +180,34 @@ unit_tests:
     expect:
       rows:
         - {crypto_id: 1, bucket: '2026-07-01 00:00:00+00'}
+
+  - name: zero_returns_are_excluded_and_signals_flagged
+    model: mart_minute_outcomes
+    description: >
+      Minute 32 repeats minute 31's close (zero return) and must drop out; minute 33 jumps to 101
+      (a signal that continues); minute 34 rises then reverts (not a signal, did not continue).
+    given:
+      - input: ref('fct_candles_1m')
+        format: sql
+        rows: |
+          with p as (
+              select i,
+                     case when i < 32 then 100 + (i % 2) * 0.01
+                          when i = 32 then 100.01
+                          when i = 33 then 101.0
+                          else 101 + ((i + 1) % 2) * 0.01 end::numeric as close
+              from generate_series(0, 49) i
+          )
+          select 1 as crypto_id, 'S1'::text as symbol,
+                 timestamptz '2026-09-20 00:00:00+00' + i * interval '1 minute' as bucket,
+                 close as open, close as high, close as low, close, 1.0::numeric as volume,
+                 'exchange'::text as source, null::numeric as pipeline_close, close as exchange_close,
+                 null::numeric as pipeline_volume, 1.0::numeric as exchange_volume,
+                 ln(close / lag(close) over (order by i))::double precision as log_return,
+                 now() as loaded_at, false as has_repaired_trades
+          from p
+    expect:
+      rows:
+        - {bucket: '2026-09-20 00:31:00+00', is_signal: false, continued_15m: true}
+        - {bucket: '2026-09-20 00:33:00+00', is_signal: true, continued_15m: true}
+        - {bucket: '2026-09-20 00:34:00+00', is_signal: false, continued_15m: false}
