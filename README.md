@@ -1,6 +1,6 @@
 # Real-Time Cryptocurrency Market Analyzer
 
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![CI](https://github.com/DiazSk/Real-Time-Cryptocurrency-Market-Analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/DiazSk/Real-Time-Cryptocurrency-Market-Analyzer/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 A streaming data pipeline that takes **every trade** for 8 crypto pairs from Coinbase's live feed, deduplicates it, rolls it up into 1-minute OHLCV candles in event time with Apache Flink, flags unusual price moves with a z-score detector, and serves the results to a Next.js market terminal over REST and WebSocket.
 
