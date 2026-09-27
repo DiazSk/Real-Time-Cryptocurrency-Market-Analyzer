@@ -27,9 +27,10 @@ All numbers are measured and reproducible. The pipeline numbers come from a 38-m
 | Anomaly alert | Injected price jump detected at z = 63.3, written once to Postgres and once to Kafka (read_committed) |
 | Candle history | **911,759** one-minute candles modeled in dbt (8 pairs, 90 days); the hourly incremental run picks up late-arriving backfill |
 | Trade-gap repair | 57 gaps found; **43 repaired exactly by trade ID** (68,793 trades, 2,573 candles recomputed); 14 overnight outages above the 10,000-trade cap skipped and logged |
-| Pipeline vs exchange | Agrees with Coinbase's candles on 93–96% of minutes for BTC, ETH, SOL and XRP. On a checked POL window the pipeline matched Coinbase's own trade record exactly (37/37 trades); Coinbase's candle endpoint reported about 3% more volume, so thin pairs agree less (POL 36%, DOGE 52%) |
-| Volatility clustering | Hour-to-hour correlation of realized volatility is **0.66** (14,460 hour pairs) |
+| Pipeline vs exchange | Over the minutes the stream built by itself (about 180 per pair), BTC, ETH, SOL and XRP match Coinbase's official candles on the close price for 99.5–100% of minutes, and on volume (within 5%) for 90–96%. Thin, low-priced pairs agree less (POL 36%, DOGE 60%), because at a 0.05% tolerance a single price tick fails the close check. Minutes rebuilt from repaired trades are excluded |
+| Volatility clustering | Hour-to-hour correlation of realized volatility is **0.66** pooled across pairs (0.52–0.70 per pair; 14,460 hour pairs) |
 | Signal follow-through | 4,391 extreme 1-minute moves (\|z\| > 4) over 90 days; only about 45% kept going the same direction 15 minutes later |
+| SQL rule vs Flink | 3 of Flink's 7 live alerts were also flagged by the SQL version of the rule. The rest differ because it uses a rolling 60-return window where Flink uses an exponentially weighted mean |
 
 Flink's restart backoff sets the recovery times. It starts at 10 s and doubles up to 2 min, and failures within the same hour keep it raised. The chaos run followed earlier test failures, so the TaskManager and Postgres recoveries hit the long end of that range. The Redis scenario found a real bug: the API's pub/sub listener died on redis-py's own `ConnectionError`, so live trades never came back after a Redis restart. It's now fixed and covered by a test.
 
@@ -85,10 +86,10 @@ The dbt project in [`analytics/`](analytics/) reads the pipeline's tables from T
 |---|---|
 | `mart_volatility_hourly` | Do volatile hours follow volatile hours? |
 | `mart_seasonality` | Which weekday and hour is each market most active? |
-| `mart_signals`, `mart_signal_precision` | After an extreme move, does the price continue or revert? The same z-score rule as Flink, rerun over 90 days |
+| `mart_signals`, `mart_signal_precision` | After an extreme move, does the price continue or revert? A SQL version of Flink's z-score rule, rerun over 90 days |
 | `mart_pipeline_vs_exchange` | How often does the streaming pipeline agree with Coinbase's official candles? |
 
-`dbt build` runs 49 checks: every model plus generic tests, singular tests (OHLC bounds, no future candles, signal warm-up) and **dbt unit tests** on the riskiest logic (source precedence, gap-aware returns, the z-score warm-up, late-arriving backfill). Disagreement between the pipeline and the exchange is reported in a mart, never failed as a test.
+`dbt build` runs 48 nodes: 14 models, 30 data tests (generic and singular: OHLC bounds, no future candles, signal warm-up) and 4 **dbt unit tests** on the riskiest logic (source precedence, gap-aware returns, the z-score warm-up, late-arriving backfill). Disagreement between the pipeline and the exchange is reported in a mart, never failed as a test.
 
 **Airflow** runs `backfill_candles → repair_trade_gaps → dbt` every hour. Astronomer Cosmos renders each dbt model as its own run and test task, 29 tasks in all.
 
