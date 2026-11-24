@@ -39,27 +39,15 @@ The full acceptance log is in [docs/ACCEPTANCE_RUN.md](docs/ACCEPTANCE_RUN.md).
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    CB["Coinbase WebSocket<br/>(matches channel)"] --> P["Python producer<br/>validation · gap tracking"]
-    P -->|"crypto-trades<br/>4 partitions"| K[(Kafka)]
-    P -. "crypto:trades" .-> R
-    K --> F["Apache Flink<br/>dedup · 1-min OHLCV + VWAP<br/>z-score detector"]
-    F -->|raw trades, candles, alerts| TS[("TimescaleDB<br/>+ 5m/15m/1h rollups")]
-    F -->|"latest candle · crypto:updates"| R[(Redis)]
-    F -->|"crypto-alerts<br/>exactly-once"| K
-    TS --> API["FastAPI<br/>REST + WebSocket"]
-    R --> API
-    API --> UI["Next.js terminal"]
-    CG["CoinGecko API"] --> UI
-    subgraph AF["Airflow DAG (hourly)"]
-        BF["Backfill<br/>90-day candles · trade-gap repair"] --> DBT["dbt build<br/>staging → marts + tests"]
-    end
-    CBR["Coinbase REST"] --> BF
-    BF --> TS
-    TS --> DBT
-    DBT --> M[("Analytics marts<br/>volatility · seasonality · signals<br/>pipeline vs exchange")]
-```
+**Streaming path:** every Coinbase trade, from the WebSocket feed to the live terminal.
+
+![Streaming path: Coinbase trades flow through a Python producer and Kafka into Apache Flink, which writes candles to TimescaleDB and the latest candle to Redis, both served by FastAPI to the Next.js terminal](docs/diagrams/architecture-streaming.svg)
+
+**Analytics path:** an hourly Airflow DAG backfills history, repairs trade gaps, and builds the dbt marts behind the [analysis](analysis/README.md).
+
+![Analytics path: Airflow runs the backfill from Coinbase REST into TimescaleDB, then dbt builds tested marts that feed the analysis notebook](docs/diagrams/architecture-analytics.svg)
+
+The diagram sources are in [`docs/diagrams/`](docs/diagrams/) (HTML, exported to SVG). The UI also pulls market context from CoinGecko, which isn't shown.
 
 - **Event time:** candles use the exchange's trade timestamp. Watermarks allow 2 s of out-of-order data and a 30 s idle timeout.
 - **Dedup:** Flink keeps the last trade ID it has seen per symbol, and `raw_trades` also has a primary key.
@@ -172,5 +160,5 @@ src/api/           FastAPI app (asyncpg, redis.asyncio)
 configs/           TimescaleDB schema, continuous aggregates, Flink config
 frontend/          Next.js 16 terminal (bklit charts, Tailwind v4, zod)
 tests/             Python tests
-docs/              Acceptance-run log and operational guides (API, database, Flink, Redis, local setup)
+docs/              Architecture diagrams, acceptance-run log and operational guides
 ```

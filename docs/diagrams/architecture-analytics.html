@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Analytics Path</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Onest:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      /* Skin: the frontend's Iridescent Edge tokens (frontend/app/globals.css) */
+      --color-paper:  #ffffff;   /* cloud */
+      --color-ink:    #2a313a;   /* dark slate */
+      --color-muted:  #5a6470;   /* slate */
+      --color-accent: #5b4bc4;   /* violet-ink */
+      --font-sans:    'Onest', system-ui, sans-serif;
+      --font-serif:   'Instrument Serif', serif;
+      --font-mono:    'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 960px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Analytics path</p>
+    <h1>From raw candles to tested marts and analysis</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 960 568" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-analytics-title architecture-analytics-desc">
+        <title id="architecture-analytics-title">Analytics path: backfill, dbt marts and analysis</title>
+        <desc id="architecture-analytics-desc">An hourly Airflow DAG runs the backfill, which loads Coinbase REST candles and repairs trade gaps in TimescaleDB alongside the streaming pipeline's candles, then runs dbt to build tested marts that feed the market analysis notebook.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5a6470"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5b4bc4"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#0b7a53"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#ffffff"/>
+
+        <!-- ============ ZONE (drawn first) ============ -->
+        <rect x="396" y="224" width="356" height="104" rx="8" fill="rgba(42,49,58,0.02)" stroke="rgba(42,49,58,0.10)" stroke-width="0.8"/>
+        <rect x="404" y="228" width="52" height="12" rx="2" fill="#ffffff"/>
+        <text x="430" y="237" fill="#636d79" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">WAREHOUSE</text>
+
+        <!-- ============ ARROWS (before nodes) ============ -->
+        <!-- Airflow -> Backfill (orchestration) -->
+        <path d="M 412,148 H 300 Q 292,148 292,156 V 256" fill="none" stroke="#5a6470" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <rect x="236" y="196" width="48" height="12" rx="2" fill="#ffffff"/>
+        <text x="260" y="205" fill="#636d79" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">RUN FIRST</text>
+
+        <!-- Airflow -> dbt (orchestration) -->
+        <path d="M 548,148 H 660 Q 668,148 668,156 V 256" fill="none" stroke="#5a6470" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <rect x="676" y="196" width="72" height="12" rx="2" fill="#ffffff"/>
+        <text x="712" y="205" fill="#636d79" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">THEN DBT BUILD</text>
+
+        <!-- Coinbase REST -> Backfill -->
+        <line x1="172" y1="284" x2="224" y2="284" stroke="#5a6470" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+        <!-- Backfill -> TimescaleDB -->
+        <line x1="360" y1="284" x2="412" y2="284" stroke="#5a6470" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="368" y="264" width="36" height="12" rx="2" fill="#ffffff"/>
+        <text x="386" y="273" fill="#636d79" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">UPSERT</text>
+
+        <!-- TimescaleDB -> dbt -->
+        <line x1="548" y1="284" x2="600" y2="284" stroke="#5a6470" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="554" y="264" width="40" height="12" rx="2" fill="#ffffff"/>
+        <text x="574" y="273" fill="#636d79" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">SOURCES</text>
+
+        <!-- dbt -> analysis -->
+        <line x1="736" y1="284" x2="788" y2="284" stroke="#5a6470" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="746" y="264" width="32" height="12" rx="2" fill="#ffffff"/>
+        <text x="762" y="273" fill="#636d79" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">MARTS</text>
+
+        <!-- Streaming pipeline -> TimescaleDB -->
+        <line x1="480" y1="392" x2="480" y2="312" stroke="#5a6470" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="488" y="346" width="64" height="12" rx="2" fill="#ffffff"/>
+        <text x="520" y="355" fill="#636d79" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">LIVE CANDLES</text>
+
+        <!-- ============ NODES ============ -->
+        <rect x="412" y="120" width="136" height="56" rx="6" fill="#ffffff"/>
+        <rect x="412" y="120" width="136" height="56" rx="6" fill="#ffffff" stroke="#2a313a" stroke-width="1"/>
+        <rect x="420" y="126" width="32" height="12" rx="2" fill="transparent" stroke="rgba(42,49,58,0.40)" stroke-width="0.8"/>
+        <text x="436" y="135" fill="#5a6470" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">ORCH</text>
+        <text x="480" y="156" fill="#2a313a" font-size="12" font-weight="600" font-family="'Onest', system-ui, sans-serif" text-anchor="middle">Airflow DAG</text>
+        <text x="480" y="170" fill="#5a6470" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">hourly · Cosmos</text>
+        <rect x="36" y="256" width="136" height="56" rx="6" fill="#ffffff"/>
+        <rect x="36" y="256" width="136" height="56" rx="6" fill="rgba(42,49,58,0.03)" stroke="rgba(42,49,58,0.30)" stroke-width="1"/>
+        <rect x="44" y="262" width="40" height="12" rx="2" fill="transparent" stroke="rgba(42,49,58,0.30)" stroke-width="0.8"/>
+        <text x="64" y="271" fill="#5a6470" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">SOURCE</text>
+        <text x="104" y="292" fill="#2a313a" font-size="12" font-weight="600" font-family="'Onest', system-ui, sans-serif" text-anchor="middle">Coinbase REST</text>
+        <text x="104" y="306" fill="#5a6470" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">candles · trades</text>
+        <rect x="224" y="256" width="136" height="56" rx="6" fill="#ffffff"/>
+        <rect x="224" y="256" width="136" height="56" rx="6" fill="#ffffff" stroke="#2a313a" stroke-width="1"/>
+        <rect x="232" y="262" width="40" height="12" rx="2" fill="transparent" stroke="rgba(42,49,58,0.40)" stroke-width="0.8"/>
+        <text x="252" y="271" fill="#5a6470" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">PYTHON</text>
+        <text x="292" y="292" fill="#2a313a" font-size="12" font-weight="600" font-family="'Onest', system-ui, sans-serif" text-anchor="middle">Backfill</text>
+        <text x="292" y="306" fill="#5a6470" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">90 days · gap repair</text>
+        <rect x="412" y="256" width="136" height="56" rx="6" fill="#ffffff"/>
+        <rect x="412" y="256" width="136" height="56" rx="6" fill="rgba(42,49,58,0.05)" stroke="#5a6470" stroke-width="1"/>
+        <rect x="420" y="262" width="36" height="12" rx="2" fill="transparent" stroke="rgba(90,100,112,0.40)" stroke-width="0.8"/>
+        <text x="438" y="271" fill="#5a6470" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="480" y="292" fill="#2a313a" font-size="12" font-weight="600" font-family="'Onest', system-ui, sans-serif" text-anchor="middle">TimescaleDB</text>
+        <text x="480" y="306" fill="#5a6470" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">raw + analytics</text>
+        <rect x="600" y="256" width="136" height="56" rx="6" fill="#ffffff"/>
+        <rect x="600" y="256" width="136" height="56" rx="6" fill="rgba(91,75,196,0.08)" stroke="#5b4bc4" stroke-width="1.2"/>
+        <rect x="608" y="262" width="24" height="12" rx="2" fill="transparent" stroke="rgba(91,75,196,0.40)" stroke-width="0.8"/>
+        <text x="620" y="271" fill="#5b4bc4" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">SQL</text>
+        <text x="668" y="292" fill="#2a313a" font-size="12" font-weight="600" font-family="'Onest', system-ui, sans-serif" text-anchor="middle">dbt</text>
+        <text x="668" y="306" fill="#5a6470" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">staging → marts</text>
+        <rect x="788" y="256" width="136" height="56" rx="6" fill="#ffffff"/>
+        <rect x="788" y="256" width="136" height="56" rx="6" fill="rgba(90,100,112,0.10)" stroke="#636d79" stroke-width="1"/>
+        <rect x="796" y="262" width="40" height="12" rx="2" fill="transparent" stroke="rgba(99,109,121,0.40)" stroke-width="0.8"/>
+        <text x="816" y="271" fill="#5a6470" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">OUTPUT</text>
+        <text x="856" y="292" fill="#2a313a" font-size="12" font-weight="600" font-family="'Onest', system-ui, sans-serif" text-anchor="middle">Analysis</text>
+        <text x="856" y="306" fill="#5a6470" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">notebook · 95% CIs</text>
+        <rect x="412" y="392" width="136" height="56" rx="6" fill="#ffffff"/>
+        <rect x="412" y="392" width="136" height="56" rx="6" fill="rgba(42,49,58,0.03)" stroke="rgba(42,49,58,0.30)" stroke-width="1"/>
+        <rect x="420" y="398" width="48" height="12" rx="2" fill="transparent" stroke="rgba(42,49,58,0.30)" stroke-width="0.8"/>
+        <text x="444" y="407" fill="#5a6470" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">UPSTREAM</text>
+        <text x="480" y="428" fill="#2a313a" font-size="12" font-weight="600" font-family="'Onest', system-ui, sans-serif" text-anchor="middle">Streaming pipeline</text>
+        <text x="480" y="442" fill="#5a6470" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">Flink · see above</text>
+
+        <!-- ============ LEGEND (bottom strip) ============ -->
+        <line x1="36" y1="496" x2="924" y2="496" stroke="rgba(42,49,58,0.10)" stroke-width="0.8"/>
+        <text x="36" y="512" fill="#5a6470" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">LEGEND</text>
+        <rect x="36" y="525" width="16" height="10" rx="2" fill="rgba(91,75,196,0.08)" stroke="#5b4bc4" stroke-width="1"/>
+        <text x="58" y="533" fill="#5a6470" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.06em">FOCAL</text>
+        <rect x="148" y="525" width="16" height="10" rx="2" fill="#ffffff" stroke="#2a313a" stroke-width="1"/>
+        <text x="170" y="533" fill="#5a6470" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.06em">SERVICE</text>
+        <rect x="260" y="525" width="16" height="10" rx="2" fill="rgba(42,49,58,0.05)" stroke="#5a6470" stroke-width="1"/>
+        <text x="282" y="533" fill="#5a6470" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.06em">STORE</text>
+        <rect x="372" y="525" width="16" height="10" rx="2" fill="rgba(42,49,58,0.03)" stroke="rgba(42,49,58,0.30)" stroke-width="1"/>
+        <text x="394" y="533" fill="#5a6470" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.06em">EXTERNAL</text>
+        <rect x="484" y="525" width="16" height="10" rx="2" fill="rgba(90,100,112,0.10)" stroke="#636d79" stroke-width="1"/>
+        <text x="506" y="533" fill="#5a6470" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.06em">OUTPUT</text>
+        <line x1="596" y1="530" x2="616" y2="530" stroke="#5a6470" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <text x="624" y="533" fill="#5a6470" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.06em">DATA</text>
+        <line x1="708" y1="530" x2="728" y2="530" stroke="#5a6470" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
+        <text x="736" y="533" fill="#5a6470" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.06em">SCHEDULES</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>
