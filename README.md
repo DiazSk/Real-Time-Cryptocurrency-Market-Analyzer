@@ -2,40 +2,17 @@
 
 [![CI](https://github.com/DiazSk/Real-Time-Cryptocurrency-Market-Analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/DiazSk/Real-Time-Cryptocurrency-Market-Analyzer/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-A streaming data pipeline that takes **every trade** for 8 crypto pairs from Coinbase's live feed, deduplicates it, rolls it up into 1-minute OHLCV candles in event time with Apache Flink, flags unusual price moves with a z-score detector, and serves the results to a Next.js market terminal over REST and WebSocket.
+**An end-to-end crypto data platform: it streams every Coinbase trade through Kafka and Flink into TimescaleDB, models 90 days of history with dbt and Airflow, and serves a live market terminal.**
 
-**Stack:** Python · Kafka · Apache Flink (Java) · TimescaleDB · Redis · dbt · Airflow · FastAPI · Next.js · Docker Compose
+![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white) ![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-231F20?logo=apachekafka&logoColor=white) ![Apache Flink](https://img.shields.io/badge/Apache_Flink-E6526F?logo=apacheflink&logoColor=white) ![TimescaleDB](https://img.shields.io/badge/TimescaleDB-FDB515?logo=timescale&logoColor=white) ![Redis](https://img.shields.io/badge/Redis-DC382D?logo=redis&logoColor=white) ![dbt](https://img.shields.io/badge/dbt-FF694B) ![Airflow](https://img.shields.io/badge/Airflow-017CEE?logo=apacheairflow&logoColor=white) ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white) ![Next.js](https://img.shields.io/badge/Next.js-000000?logo=nextdotjs&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 
-**Tracks:** BTC, ETH, SOL, XRP, ADA, DOGE, AVAX, POL
+## Highlights
 
-## Results
-
-All numbers are measured and reproducible. The pipeline numbers come from a 38-minute acceptance run. The load and chaos numbers come from `make load-test` and `make chaos-test`, run on an M-series MacBook (10 cores, 4 GB for Docker) with a single API process and the load generator on the same machine.
-
-| What | Result |
-|---|---|
-| Trades ingested | 17,969, with 0 duplicates and 0 missed (checked with trade-ID gap tracking) |
-| Candle correctness | 0 bad candles: every candle has `trade_count > 0` and `low ≤ VWAP ≤ high` |
-| REST latency | p95 **12.8 ms** at 10 concurrent clients (1,640 req/s) and **460 ms** at 50 clients (329 req/s), 0 errors ([load results](benchmarks/results/2026-09-27-load.json)) |
-| Live WebSocket fan-out | **400 clients** (the highest step tested), every one receiving the same trades as the best-served client (min delivery ratio 1.000), p95 exchange-to-client lag **166 ms** |
-| Ingestion lag | p95 **92 ms** from the exchange's trade timestamp to the producer (the clock offset, 28 ms, is recorded) |
-| Flink TaskManager crash | 0 lost trades, 0 inconsistent candles; data flowing again after 116 s ([chaos results](benchmarks/results/2026-09-27-chaos.json)) |
-| Kafka broker restart | 0 lost trades; data flowing again after 5.5 s (one quick restart; a longer broker outage wasn't tested) |
-| Postgres down for 30 s | 0 lost trades, 0 inconsistent candles; data flowing again 123 s after the fault |
-| Redis down for 30 s | API 100% available (served from Postgres); live trades resumed 0.7 s after Redis came back in this run. The listener's reconnect backoff caps this at 30 s |
-| Producer restart | 1 trade missed while it reconnected (Coinbase doesn't replay the feed) |
-| Anomaly alert | Injected price jump detected at z = 63.3, written once to Postgres and once to Kafka (read_committed) |
-| Candle history | **About 911k** one-minute candles modeled in dbt (8 pairs, 90 days); the hourly incremental run picks up late-arriving backfill |
-| Trade-gap repair | 57 gaps found; **43 repaired exactly by trade ID** (68,793 trades, 2,573 candles recomputed); 14 overnight outages above the 10,000-trade cap skipped and logged |
-| Pipeline vs exchange | Over the minutes the stream built by itself (about 180 per pair), BTC, ETH, SOL and XRP match Coinbase's official candles on the close price for 99.5–100% of minutes, and on volume (within 5%) for 90–96%. Thin pairs agree less (POL 36%, DOGE 60%), mostly on volume. It isn't price-tick rounding: even at 90-day lows, every tick is at most 0.017% of price, well below the 0.05% tolerance. POL's close misses remain unexplained. Minutes rebuilt from repaired trades are excluded |
-| Volatility clustering | Hour-to-hour autocorrelation of deseasonalized volatility is **0.76** (median across pairs, 0.61–0.85 per pair), above the 95% shuffle null for all 8 pairs ([analysis](analysis/README.md)) |
-| Extreme moves | The 3,856 moves with \|z\| > 4 kept going 15 minutes later **45.2%** of the time, against a **49.5%** baseline for non-signal minutes: a difference of −4.2 points, 95% CI [−6.5, −2.0]. The average move isn't measurably given back (+2.1 bps, CI includes 0) |
-| SQL rule vs Flink | 3 of Flink's 7 live alerts were also flagged by the SQL version of the rule. The rest differ because it uses a rolling 60-return window where Flink uses an exponentially weighted mean |
-| Time-of-day effect | Volatility peaks at 14:00 UTC at **1.80x** the quietest hour (95% CI [1.60, 1.99]); the hour effect is clear for 7 of 8 pairs (POL marginal); weekday vs weekend is inconclusive |
-
-Flink's restart backoff sets the recovery times. It starts at 10 s and doubles up to 2 min, and failures within the same hour keep it raised. The chaos run followed earlier test failures, so the TaskManager and Postgres recoveries hit the long end of that range. The Redis scenario found a real bug: the API's pub/sub listener died on redis-py's own `ConnectionError`, so live trades never came back after a Redis restart. It's now fixed and covered by a test.
-
-The full acceptance log is in [docs/ACCEPTANCE_RUN.md](docs/ACCEPTANCE_RUN.md).
+- **Streams every trade, in event time:** 8 Coinbase pairs → Kafka → Flink (dedup, 1-minute OHLCV + VWAP, z-score anomaly alerts) → TimescaleDB and Redis → FastAPI → Next.js terminal.
+- **Correct under failure:** 17,969 trades with **0 duplicates and 0 missed**. Chaos tests killed Kafka, a Flink TaskManager, Postgres and Redis: **0 trades lost**.
+- **Fast:** REST p95 **12.8 ms** at 10 concurrent clients; **400 live WebSocket clients** at p95 166 ms exchange-to-client lag.
+- **Analytics layer:** **~911k candles** modeled in dbt (staging → marts, 48 checks), run hourly by Airflow, plus a [written analysis](analysis/README.md) with baselines and 95% CIs.
+- **Tested end to end:** 119 pytest, 22 JUnit and 48 dbt checks in a 6-job GitHub Actions CI.
 
 ## Architecture
 
@@ -64,10 +41,38 @@ The diagram sources are in [`docs/diagrams/`](docs/diagrams/) (HTML, exported to
 
 Checkpoints run every 30 s in exactly-once mode with RocksDB state. Deploys go through a savepoint (`make deploy-flink`), so a redeploy keeps the in-progress minute and the detector's state.
 
+## Measured results
+
+All numbers are measured and reproducible. The pipeline numbers come from a 38-minute acceptance run. The load and chaos numbers come from `make load-test` and `make chaos-test`, run on an M-series MacBook (10 cores, 4 GB for Docker) with a single API process and the load generator on the same machine.
+
+| What | Result |
+|---|---|
+| Trades ingested | 17,969, with 0 duplicates and 0 missed (checked with trade-ID gap tracking) |
+| Candle correctness | 0 bad candles: every candle has `trade_count > 0` and `low ≤ VWAP ≤ high` |
+| REST latency | p95 **12.8 ms** at 10 concurrent clients (1,640 req/s) and **460 ms** at 50 clients (329 req/s), 0 errors ([load results](benchmarks/results/2026-09-27-load.json)) |
+| Live WebSocket fan-out | **400 clients** (the highest step tested), every one receiving the same trades as the best-served client (min delivery ratio 1.000), p95 exchange-to-client lag **166 ms** |
+| Ingestion lag | p95 **92 ms** from the exchange's trade timestamp to the producer (the clock offset, 28 ms, is recorded) |
+| Flink TaskManager crash | 0 lost trades, 0 inconsistent candles; data flowing again after 116 s ([chaos results](benchmarks/results/2026-09-27-chaos.json)) |
+| Kafka broker restart | 0 lost trades; data flowing again after 5.5 s (one quick restart; a longer broker outage wasn't tested) |
+| Postgres down for 30 s | 0 lost trades, 0 inconsistent candles; data flowing again 123 s after the fault |
+| Redis down for 30 s | API 100% available (served from Postgres); live trades resumed 0.7 s after Redis came back in this run. The listener's reconnect backoff caps this at 30 s |
+| Producer restart | 1 trade missed while it reconnected (Coinbase doesn't replay the feed) |
+| Anomaly alert | Injected price jump detected at z = 63.3, written once to Postgres and once to Kafka (read_committed) |
+| Candle history | **About 911k** one-minute candles modeled in dbt (8 pairs, 90 days); the hourly incremental run picks up late-arriving backfill |
+| Trade-gap repair | 57 gaps found; **43 repaired exactly by trade ID** (68,793 trades, 2,573 candles recomputed); 14 overnight outages above the 10,000-trade cap skipped and logged |
+| Pipeline vs exchange | Over the minutes the stream built by itself (about 180 per pair), BTC, ETH, SOL and XRP match Coinbase's official candles on the close price for 99.5–100% of minutes, and on volume (within 5%) for 90–96%. Thin pairs agree less (POL 36%, DOGE 60%), mostly on volume. It isn't price-tick rounding: even at 90-day lows, every tick is at most 0.017% of price, well below the 0.05% tolerance. POL's close misses remain unexplained. Minutes rebuilt from repaired trades are excluded |
+| Volatility clustering | Hour-to-hour autocorrelation of deseasonalized volatility is **0.76** (median across pairs, 0.61–0.85 per pair), above the 95% shuffle null for all 8 pairs ([analysis](analysis/README.md)) |
+| Extreme moves | The 3,856 moves with \|z\| > 4 kept going 15 minutes later **45.2%** of the time, against a **49.5%** baseline for non-signal minutes: a difference of −4.2 points, 95% CI [−6.5, −2.0]. The average move isn't measurably given back (+2.1 bps, CI includes 0) |
+| SQL rule vs Flink | 3 of Flink's 7 live alerts were also flagged by the SQL version of the rule. The rest differ because it uses a rolling 60-return window where Flink uses an exponentially weighted mean |
+| Time-of-day effect | Volatility peaks at 14:00 UTC at **1.80x** the quietest hour (95% CI [1.60, 1.99]); the hour effect is clear for 7 of 8 pairs (POL marginal); weekday vs weekend is inconclusive |
+
+Flink's restart backoff sets the recovery times. It starts at 10 s and doubles up to 2 min, and failures within the same hour keep it raised. The chaos run followed earlier test failures, so the TaskManager and Postgres recoveries hit the long end of that range. The Redis scenario found a real bug: the API's pub/sub listener died on redis-py's own `ConnectionError`, so live trades never came back after a Redis restart. It's now fixed and covered by a test.
+
+The full acceptance log is in [docs/ACCEPTANCE_RUN.md](docs/ACCEPTANCE_RUN.md).
+
 ## Analytics layer
 
 The written analysis built on these marts, with four questions, baselines and 95% CIs, is in [`analysis/`](analysis/README.md).
-
 
 The dbt project in [`analytics/`](analytics/) reads the pipeline's tables from TimescaleDB:
 - **Staging:** renames and casts only.
