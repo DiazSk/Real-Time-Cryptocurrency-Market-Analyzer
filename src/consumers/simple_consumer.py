@@ -27,7 +27,7 @@ message (that would silently and permanently skip the failed one). Instead
 backoff, until it succeeds, and only then commits — a sustained Postgres
 outage pauses this consumer rather than losing or skipping a trade.
 
-ponytail: lite mode has no z-score anomaly detector. `price_alerts` stays
+Limitation: lite mode has no z-score anomaly detector. `price_alerts` stays
 empty when running this instead of Flink; the trend is real (VWAP, OHLC) but
 no PRICE_SPIKE/PRICE_DROP rows are ever written. Add a detector here if lite
 mode needs alerts.
@@ -121,7 +121,7 @@ def process_message(msg, insert_fn, commit_fn, sleep_fn, is_shutting_down=lambda
     consumer instead of losing or skipping the trade). `is_shutting_down()` is
     checked before each attempt so shutdown can interrupt a stuck retry loop
     without committing;
-    ponytail: since `sleep_fn` (time.sleep in production) isn't itself
+    Trade-off: since `sleep_fn` (time.sleep in production) isn't itself
     interruptible, that check only takes effect between attempts — the ceiling
     on shutdown latency is one retry delay (up to RETRY_MAX_DELAY_SECONDS).
 

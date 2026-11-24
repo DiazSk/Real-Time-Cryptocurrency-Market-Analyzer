@@ -153,7 +153,7 @@ class CoinbaseTradeProducer:
         if gap:
             logger.warning("%s: %d trades missed before trade_id %d", trade.symbol, gap, trade.trade_id)
 
-        # ponytail: KafkaProducer.send can block the event loop briefly on first metadata fetch
+        # Trade-off: KafkaProducer.send can block the event loop briefly on first metadata fetch
         # or a full buffer; fine at ~10 trades/s, move to aiokafka if throughput grows 100x.
         self.kafka.send(self.topic, key=trade.symbol, value=trade.model_dump_json()).add_errback(
             self._on_send_error
@@ -220,7 +220,7 @@ class CoinbaseTradeProducer:
 def _build_redis_client() -> redis.Redis:
     """Sync redis-py client for the crypto:trades tick publish.
 
-    ponytail: redis-py's publish() is a blocking socket call made directly on this
+    Trade-off: redis-py's publish() is a blocking socket call made directly on this
     asyncio loop (the same thread that reads the Coinbase WebSocket and sends to
     Kafka) — it is not offloaded to a thread. The timeouts below are the ceiling on
     how long a hung Redis can stall the whole producer (~1s), not a fix for the

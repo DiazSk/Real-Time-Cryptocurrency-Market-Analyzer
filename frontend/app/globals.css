@@ -226,7 +226,7 @@
 
 @layer components {
   /* Pill control with a neutral 1px hairline; violet when active.
-     The iridescent fringe is reserved for pipeline-live surfaces (DESIGN.md, Live Fringe Rule). */
+     The iridescent fringe is reserved for surfaces showing live pipeline data. */
   .pill {
     display: inline-flex;
     align-items: center;
